@@ -1,0 +1,6 @@
+{
+  "name": "NEXA MealPass - QR Restaurant Meal Management",
+  "description": "Mobile QR code meal management and prepaid meal tracking prototype for restaurants, students, and regular customers by NEXA STACK Ltd.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
