@@ -34,6 +34,7 @@ import { DateStripSelector } from './DateStripSelector';
 import { QuickServiceCards } from './QuickServiceCards';
 import { FloatingNavDock } from './FloatingNavDock';
 import { NotificationSheet } from './NotificationSheet';
+import { CustomerRegistrationModal } from './CustomerRegistrationModal';
 
 export const CustomerApp: React.FC = () => {
   const {
@@ -48,8 +49,10 @@ export const CustomerApp: React.FC = () => {
     mealRecords,
     paymentRecords,
     topUpCustomer,
+    registerCustomer,
     theme,
     toggleTheme,
+    todayDateStr,
     currentShift,
     setCurrentShift,
   } = useMealApp();
@@ -72,6 +75,9 @@ export const CustomerApp: React.FC = () => {
   const [showNotificationSheet, setShowNotificationSheet] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
+  // Self-Registration Modal state
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+
   // Kitchen slip / digital receipt modal state
   const [selectedReceiptMeal, setSelectedReceiptMeal] = useState<MealRecord | null>(null);
   const [receiptCopied, setReceiptCopied] = useState(false);
@@ -80,9 +86,12 @@ export const CustomerApp: React.FC = () => {
   const isExhausted = activeCustomer.mealsRemaining === 0;
   const isGuestLimitReached = guestPasses.length >= settings.maxGuestQrPerDay;
 
-  // Filter history for current customer
+  // Filter history for current customer and optional date selection
   const customerMeals = mealRecords.filter(r => r.customerId === activeCustomer.id);
   const customerPayments = paymentRecords.filter(r => r.customerId === activeCustomer.id);
+
+  // Meals for the specifically selected date from DateStripSelector
+  const selectedDateMeals = customerMeals.filter(r => r.timestamp.startsWith(selectedDate));
 
   const handleCreateGuest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,22 +239,31 @@ Thank you for dining with us!
               )}
             </button>
 
-            {/* Quick Demo Customer Switcher */}
+            {/* Quick Demo Customer Switcher & Self-Register CTA */}
             <select
               value={activeCustomer.id}
               onChange={(e) => {
                 sound.playTap();
-                setActiveCustomerId(e.target.value);
+                if (e.target.value === '__REGISTER_NEW__') {
+                  setShowRegisterModal(true);
+                } else {
+                  setActiveCustomerId(e.target.value);
+                }
               }}
               className={`text-[11px] border rounded-full px-2 py-1 pr-5 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                 isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
               }`}
             >
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name.split(' ')[0]} ({c.mealsRemaining} meals)
-                </option>
-              ))}
+              <optgroup label="Switch Account">
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name.split(' ')[0]} ({c.mealsRemaining} meals)
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="New User">
+                <option value="__REGISTER_NEW__">+ Register New Pass</option>
+              </optgroup>
             </select>
           </div>
         </div>
@@ -478,6 +496,40 @@ Thank you for dining with us!
             </div>
 
 
+
+            {/* Selected Date Activity Card (Live reaction to DateStripSelector clicks) */}
+            {selectedDate !== todayDateStr && (
+              <div className={`p-3.5 rounded-2xl border text-xs space-y-2 transition-colors ${
+                isDark ? 'bg-slate-800/60 border-slate-700/60' : 'bg-slate-50 border-slate-200 shadow-xs'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-emerald-500">
+                    Activity on {new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      sound.playTap();
+                      setSelectedDate(todayDateStr);
+                    }}
+                    className="text-[10px] text-slate-400 hover:text-white underline"
+                  >
+                    Return to Today
+                  </button>
+                </div>
+                {selectedDateMeals.length > 0 ? (
+                  <div className="space-y-1">
+                    {selectedDateMeals.map(m => (
+                      <div key={m.id} className="flex justify-between items-center text-[11px]">
+                        <span>{m.type === 'guest' ? `Guest Pass (${m.guestName})` : 'Daily Meal Pass'}</span>
+                        <span className="font-mono text-emerald-400">-1 Meal ({new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400">No meal scans recorded on this date.</div>
+                )}
+              </div>
+            )}
 
             {/* Quick Guest Pass Callout (Proposal: "More than one QR code" + Section 9 daily limit) */}
             <div className={`rounded-2xl border p-3.5 flex items-center justify-between gap-3 transition-colors ${
@@ -773,6 +825,26 @@ Thank you for dining with us!
               </p>
             </div>
 
+            {/* Register New Account / Pass CTA in Wallet */}
+            <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
+              isDark ? 'bg-slate-800/80 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200 shadow-xs'
+            }`}>
+              <div>
+                <div className="font-semibold text-xs text-emerald-500">Need a New Meal Pass?</div>
+                <div className="text-[10px] text-slate-400">Register as a new student or worker subscriber.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTap();
+                  setShowRegisterModal(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs"
+              >
+                + Register New
+              </button>
+            </div>
+
             {/* Profile Overview Card */}
             <div className={`p-4 rounded-2xl border space-y-3 transition-colors ${
               isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200 shadow-xs'
@@ -932,6 +1004,19 @@ Thank you for dining with us!
         customer={activeCustomer}
         settings={settings}
         isDark={isDark}
+      />
+
+      {/* CUSTOMER REGISTRATION MODAL */}
+      <CustomerRegistrationModal
+        isOpen={showRegisterModal}
+        onClose={() => setShowRegisterModal(false)}
+        isDark={isDark}
+        mealPriceRwf={settings.mealPriceRwf}
+        momoMerchantCode={settings.momoMerchantCode}
+        onRegister={registerCustomer}
+        onSuccess={(newCust) => {
+          setActiveCustomerId(newCust.id);
+        }}
       />
 
       {/* CREATE GUEST PASS MODAL */}
