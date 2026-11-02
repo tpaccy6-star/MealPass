@@ -50,6 +50,7 @@ export const CustomerApp: React.FC = () => {
     topUpCustomer,
     theme,
     toggleTheme,
+    todayDateStr,
     currentShift,
     setCurrentShift,
   } = useMealApp();
@@ -80,9 +81,12 @@ export const CustomerApp: React.FC = () => {
   const isExhausted = activeCustomer.mealsRemaining === 0;
   const isGuestLimitReached = guestPasses.length >= settings.maxGuestQrPerDay;
 
-  // Filter history for current customer
+  // Filter history for current customer and optional date selection
   const customerMeals = mealRecords.filter(r => r.customerId === activeCustomer.id);
   const customerPayments = paymentRecords.filter(r => r.customerId === activeCustomer.id);
+
+  // Meals for the specifically selected date from DateStripSelector
+  const selectedDateMeals = customerMeals.filter(r => r.timestamp.startsWith(selectedDate));
 
   const handleCreateGuest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -478,6 +482,40 @@ Thank you for dining with us!
             </div>
 
 
+
+            {/* Selected Date Activity Card (Live reaction to DateStripSelector clicks) */}
+            {selectedDate !== todayDateStr && (
+              <div className={`p-3.5 rounded-2xl border text-xs space-y-2 transition-colors ${
+                isDark ? 'bg-slate-800/60 border-slate-700/60' : 'bg-slate-50 border-slate-200 shadow-xs'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-emerald-500">
+                    Activity on {new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      sound.playTap();
+                      setSelectedDate(todayDateStr);
+                    }}
+                    className="text-[10px] text-slate-400 hover:text-white underline"
+                  >
+                    Return to Today
+                  </button>
+                </div>
+                {selectedDateMeals.length > 0 ? (
+                  <div className="space-y-1">
+                    {selectedDateMeals.map(m => (
+                      <div key={m.id} className="flex justify-between items-center text-[11px]">
+                        <span>{m.type === 'guest' ? `Guest Pass (${m.guestName})` : 'Daily Meal Pass'}</span>
+                        <span className="font-mono text-emerald-400">-1 Meal ({new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400">No meal scans recorded on this date.</div>
+                )}
+              </div>
+            )}
 
             {/* Quick Guest Pass Callout (Proposal: "More than one QR code" + Section 9 daily limit) */}
             <div className={`rounded-2xl border p-3.5 flex items-center justify-between gap-3 transition-colors ${
