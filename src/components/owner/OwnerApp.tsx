@@ -48,7 +48,9 @@ import { Customer, MealRecord, MealShift, ShiftCloseRecord } from '../../types';
 import { sound } from '../../utils/audio';
 import { BatchReminderModal } from './BatchReminderModal';
 import { DailyReportPdfModal } from './DailyReportPdfModal';
+import { NeonDatabaseModal } from './NeonDatabaseModal';
 import { generateDailyMealReportPdf } from '../../utils/pdfExport';
+import { Database } from 'lucide-react';
 
 export const OwnerApp: React.FC = () => {
   const {
@@ -117,6 +119,10 @@ export const OwnerApp: React.FC = () => {
   const [reminderLang, setReminderLang] = useState<'en' | 'rw'>('en');
   const [reminderCopied, setReminderCopied] = useState(false);
   const [showBatchReminderModal, setShowBatchReminderModal] = useState(false);
+
+  // Neon DB Connection Modal state
+  const [showNeonModal, setShowNeonModal] = useState(false);
+  const { databaseStatus } = useMealApp();
 
   // Shift Close Reconciliation Modal
   const [showShiftCloseModal, setShowShiftCloseModal] = useState(false);
@@ -197,10 +203,10 @@ export const OwnerApp: React.FC = () => {
     setManualCodeInput('');
   };
 
-  const handleWalkInSubmit = (e: React.FormEvent) => {
+  const handleWalkInSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (walkInMeals <= 0) return;
-    const newRecord = recordWalkIn(walkInMeals, walkInPayment, walkInNote, walkInMomoRef);
+    const newRecord = await recordWalkIn(walkInMeals, walkInPayment, walkInNote, walkInMomoRef);
     setJustLoggedWalkIn(newRecord);
     setWalkInMeals(1);
     setWalkInMomoRef('');
@@ -230,9 +236,9 @@ export const OwnerApp: React.FC = () => {
     setTopUpOwnerMomoTxId('');
   };
 
-  const handleSaveShiftClose = (e: React.FormEvent) => {
+  const handleSaveShiftClose = async (e: React.FormEvent) => {
     e.preventDefault();
-    const report = closeShift(countedCashInput, countedMomoInput, shiftCloseNotes);
+    const report = await closeShift(countedCashInput, countedMomoInput, shiftCloseNotes);
     setLatestShiftReport(report);
   };
 
@@ -1542,6 +1548,30 @@ export const OwnerApp: React.FC = () => {
                 </button>
               </div>
 
+              {/* Neon Database Settings Card */}
+              <div className={`pt-2 border-t flex items-center justify-between ${
+                isDark ? 'border-slate-700/60' : 'border-slate-200'
+              }`}>
+                <div>
+                  <div className={`text-xs font-semibold flex items-center gap-1.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                    <Database className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Neon Database (PostgreSQL)</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    Status: <strong className={databaseStatus?.connected ? 'text-emerald-500' : 'text-amber-500'}>
+                      {databaseStatus?.connected ? 'Connected to Neon' : 'In-Memory / Local'}
+                    </strong>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowNeonModal(true)}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors"
+                >
+                  Configure Neon DB
+                </button>
+              </div>
+
               {/* Theme Toggle in Settings */}
               <div className={`pt-2 border-t flex items-center justify-between ${
                 isDark ? 'border-slate-700/60' : 'border-slate-200'
@@ -2451,6 +2481,13 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
         settings={settings}
         isDark={isDark}
         todayDateStr={todayDateStr}
+      />
+
+      {/* NEON DATABASE MODAL */}
+      <NeonDatabaseModal
+        isOpen={showNeonModal}
+        onClose={() => setShowNeonModal(false)}
+        isDark={isDark}
       />
 
     </div>
