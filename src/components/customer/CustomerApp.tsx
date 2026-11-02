@@ -34,6 +34,7 @@ import { DateStripSelector } from './DateStripSelector';
 import { QuickServiceCards } from './QuickServiceCards';
 import { FloatingNavDock } from './FloatingNavDock';
 import { NotificationSheet } from './NotificationSheet';
+import { CustomerRegistrationModal } from './CustomerRegistrationModal';
 
 export const CustomerApp: React.FC = () => {
   const {
@@ -48,6 +49,7 @@ export const CustomerApp: React.FC = () => {
     mealRecords,
     paymentRecords,
     topUpCustomer,
+    registerCustomer,
     theme,
     toggleTheme,
     todayDateStr,
@@ -73,6 +75,9 @@ export const CustomerApp: React.FC = () => {
   const [showNotificationSheet, setShowNotificationSheet] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
+  // Self-Registration Modal state
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+
   // Kitchen slip / digital receipt modal state
   const [selectedReceiptMeal, setSelectedReceiptMeal] = useState<MealRecord | null>(null);
   const [receiptCopied, setReceiptCopied] = useState(false);
@@ -234,22 +239,31 @@ Thank you for dining with us!
               )}
             </button>
 
-            {/* Quick Demo Customer Switcher */}
+            {/* Quick Demo Customer Switcher & Self-Register CTA */}
             <select
               value={activeCustomer.id}
               onChange={(e) => {
                 sound.playTap();
-                setActiveCustomerId(e.target.value);
+                if (e.target.value === '__REGISTER_NEW__') {
+                  setShowRegisterModal(true);
+                } else {
+                  setActiveCustomerId(e.target.value);
+                }
               }}
               className={`text-[11px] border rounded-full px-2 py-1 pr-5 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                 isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
               }`}
             >
-              {customers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name.split(' ')[0]} ({c.mealsRemaining} meals)
-                </option>
-              ))}
+              <optgroup label="Switch Account">
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name.split(' ')[0]} ({c.mealsRemaining} meals)
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="New User">
+                <option value="__REGISTER_NEW__">+ Register New Pass</option>
+              </optgroup>
             </select>
           </div>
         </div>
@@ -811,6 +825,26 @@ Thank you for dining with us!
               </p>
             </div>
 
+            {/* Register New Account / Pass CTA in Wallet */}
+            <div className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${
+              isDark ? 'bg-slate-800/80 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200 shadow-xs'
+            }`}>
+              <div>
+                <div className="font-semibold text-xs text-emerald-500">Need a New Meal Pass?</div>
+                <div className="text-[10px] text-slate-400">Register as a new student or worker subscriber.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  sound.playTap();
+                  setShowRegisterModal(true);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs"
+              >
+                + Register New
+              </button>
+            </div>
+
             {/* Profile Overview Card */}
             <div className={`p-4 rounded-2xl border space-y-3 transition-colors ${
               isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200 shadow-xs'
@@ -970,6 +1004,19 @@ Thank you for dining with us!
         customer={activeCustomer}
         settings={settings}
         isDark={isDark}
+      />
+
+      {/* CUSTOMER REGISTRATION MODAL */}
+      <CustomerRegistrationModal
+        isOpen={showRegisterModal}
+        onClose={() => setShowRegisterModal(false)}
+        isDark={isDark}
+        mealPriceRwf={settings.mealPriceRwf}
+        momoMerchantCode={settings.momoMerchantCode}
+        onRegister={registerCustomer}
+        onSuccess={(newCust) => {
+          setActiveCustomerId(newCust.id);
+        }}
       />
 
       {/* CREATE GUEST PASS MODAL */}
