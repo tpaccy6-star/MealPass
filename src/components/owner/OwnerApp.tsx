@@ -10,7 +10,6 @@ import {
   UtensilsCrossed, 
   BarChart3, 
   Settings as SettingsIcon, 
-  Coffee, 
   CheckCircle2, 
   XCircle, 
   Plus, 
@@ -31,7 +30,8 @@ import {
   ShieldCheck,
   Check,
   Copy,
-  Smartphone
+  Smartphone,
+  FileText
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -47,6 +47,8 @@ import { useMealApp } from '../../context/MealAppContext';
 import { Customer, MealRecord, MealShift, ShiftCloseRecord } from '../../types';
 import { sound } from '../../utils/audio';
 import { BatchReminderModal } from './BatchReminderModal';
+import { DailyReportPdfModal } from './DailyReportPdfModal';
+import { generateDailyMealReportPdf } from '../../utils/pdfExport';
 
 export const OwnerApp: React.FC = () => {
   const {
@@ -77,11 +79,10 @@ export const OwnerApp: React.FC = () => {
   } = useMealApp();
 
   const isDark = theme === 'dark';
-  const [chartMetric, setChartMetric] = useState<'all' | 'total' | 'regular' | 'walkin' | 'tea'>('all');
+  const [chartMetric, setChartMetric] = useState<'all' | 'total' | 'regular' | 'walkin'>('all');
   const [activeTab, setActiveTab] = useState<'scanner' | 'walkin' | 'customers' | 'reports' | 'settings'>('scanner');
   
   // Scanner state
-  const [includeTea, setIncludeTea] = useState(false);
   const [manualCodeInput, setManualCodeInput] = useState('');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -90,7 +91,6 @@ export const OwnerApp: React.FC = () => {
 
   // Walk-in state
   const [walkInMeals, setWalkInMeals] = useState(1);
-  const [walkInTea, setWalkInTea] = useState(0);
   const [walkInPayment, setWalkInPayment] = useState<'cash' | 'momo'>('cash');
   const [walkInMomoRef, setWalkInMomoRef] = useState('');
   const [walkInNote, setWalkInNote] = useState('');
@@ -130,13 +130,16 @@ export const OwnerApp: React.FC = () => {
   const [activeKitchenChitMeal, setActiveKitchenChitMeal] = useState<MealRecord | null>(null);
   const [chitCopied, setChitCopied] = useState(false);
 
+  // Formatted PDF Document Export Modal state
+  const [showPdfReportModal, setShowPdfReportModal] = useState(false);
+  const [pdfDownloadedToast, setPdfDownloadedToast] = useState(false);
+
   // Today's summary calculations
   const todayMeals = mealRecords.filter(r => r.timestamp.startsWith(todayDateStr) && r.status === 'valid');
   const todayTotalMealsCount = todayMeals.reduce((acc, r) => acc + r.mealCount, 0);
   const todayRegularMealsCount = todayMeals.filter(r => r.type === 'regular').reduce((acc, r) => acc + r.mealCount, 0);
   const todayGuestMealsCount = todayMeals.filter(r => r.type === 'guest').reduce((acc, r) => acc + r.mealCount, 0);
   const todayWalkInMealsCount = todayMeals.filter(r => r.type === 'walk-in').reduce((acc, r) => acc + r.mealCount, 0);
-  const todayTeaCount = todayMeals.reduce((acc, r) => acc + r.teaCount, 0);
   const todayTotalRevenueRwf = todayMeals.reduce((acc, r) => acc + r.amountRwf, 0);
 
   // Shift specific recorded revenue
@@ -190,17 +193,16 @@ export const OwnerApp: React.FC = () => {
 
   const handleExecuteScan = (codeToScan: string) => {
     sound.playTap();
-    scanQRCode(codeToScan, includeTea);
+    scanQRCode(codeToScan);
     setManualCodeInput('');
   };
 
   const handleWalkInSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (walkInMeals <= 0) return;
-    const newRecord = recordWalkIn(walkInMeals, walkInTea, walkInPayment, walkInNote, walkInMomoRef);
+    const newRecord = recordWalkIn(walkInMeals, walkInPayment, walkInNote, walkInMomoRef);
     setJustLoggedWalkIn(newRecord);
     setWalkInMeals(1);
-    setWalkInTea(0);
     setWalkInMomoRef('');
     setWalkInNote('');
   };
@@ -238,14 +240,13 @@ export const OwnerApp: React.FC = () => {
   const handleExportCsv = () => {
     sound.playTap();
     const rows = [
-      ["Timestamp", "Customer", "Shift", "Type", "Meals", "Tea", "Amount (RWF)", "Payment Method", "MoMo Reference", "Status"],
+      ["Timestamp", "Customer", "Shift", "Type", "Meals", "Amount (RWF)", "Payment Method", "MoMo Reference", "Status"],
       ...mealRecords.map(r => [
         r.timestamp,
         r.customerName,
         r.shift || 'lunch',
         r.type,
         r.mealCount,
-        r.teaCount,
         r.amountRwf,
         r.paymentMethod,
         r.momoReference || '-',
@@ -262,13 +263,39 @@ export const OwnerApp: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  const generateReminderMessage = (c: Customer, lang: 'en' | 'rw') => {
-    const replenishMeals = 10;
-    const replenishRwf = replenishMeals * settings.mealPriceRwf;
-    if (lang === 'rw') {
-      return `Muraho ${c.name}, ifatabuguzi ryanyu ryo kurya muri ${settings.restaurantName} risigaranye amafunguro ${c.mealsRemaining}. Komeza urye neza wiyandikisha cyangwa wishyura kuri MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#) amafaranga ${replenishRwf.toLocaleString()} RWF (amafunguro 10). Murakoze!`;
+  // Formatted PDF Document export generator
+  const handleDirectDownloadPdf = () => {
+    sound.playTap();
+    try {
+      const doc = generateDailyMealReportPdf({
+        date: todayDateStr,
+        shift: currentShift,
+        settings,
+        records: mealRecords,
+        payments: paymentRecords,
+        shiftCloseRecord: latestShiftReport || shiftCloseRecords[0],
+      });
+      const fileName = `${settings.restaurantName.toLowerCase().replace(/\s+/g, '_')}_meal_report_${todayDateStr}.pdf`;
+      doc.save(fileName);
+      sound.playSuccess();
+      setPdfDownloadedToast(true);
+      setTimeout(() => setPdfDownloadedToast(false), 3500);
+    } catch {
+      sound.playError();
     }
-    return `Hello ${c.name}, your ${settings.restaurantName} meal pass has only ${c.mealsRemaining} meals remaining. To avoid cafeteria lunch queues, please replenish your balance (${replenishMeals} meals = ${replenishRwf.toLocaleString()} RWF) via MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#). Thank you!`;
+  };
+
+  const generateReminderMessage = (c: Customer, lang: 'en' | 'rw') => {
+    const replenishPlan = c.category === 'Student'
+      ? { meals: Math.floor(35000 / settings.mealPriceRwf), rwf: 35000, name: 'Campus Plan' }
+      : c.category === 'Worker'
+      ? { meals: Math.floor(45000 / settings.mealPriceRwf), rwf: 45000, name: 'Executive Plan' }
+      : { meals: 20, rwf: 40000, name: 'Monthly Plan' };
+
+    if (lang === 'rw') {
+      return `Muraho ${c.name}, ifatabuguzi ryanyu ryo kurya muri ${settings.restaurantName} risigaranye amafunguro ${c.mealsRemaining}. Komeza urye neza wiyandikisha cyangwa wishyura kuri MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#) amafaranga ${replenishPlan.rwf.toLocaleString()} RWF (${replenishPlan.name}: amafunguro ${replenishPlan.meals}). Murakoze!`;
+    }
+    return `Hello ${c.name}, your ${settings.restaurantName} meal pass has only ${c.mealsRemaining} meals remaining. To avoid cafeteria lunch queues, please replenish your balance (${replenishPlan.name}: ${replenishPlan.meals} meals = ${replenishPlan.rwf.toLocaleString()} RWF) via MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#). Thank you!`;
   };
 
   const handleSendWhatsAppReminder = (c: Customer) => {
@@ -404,34 +431,24 @@ export const OwnerApp: React.FC = () => {
           <div className="space-y-4 animate-in fade-in duration-200">
             
             {/* Scanner Controls / Options */}
+            {/* Scanner Shift Info Banner */}
             <div className={`flex items-center justify-between p-3 rounded-2xl border transition-colors ${
               isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200 shadow-xs'
             }`}>
               <div className="flex items-center gap-2.5">
-                <Coffee className={`w-4 h-4 ${includeTea ? 'text-emerald-500' : 'text-slate-400'}`} />
+                <div className="w-7 h-7 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center font-bold text-xs">
+                  ⚡
+                </div>
                 <div>
-                  <div className={`text-xs font-semibold ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                    Optional Tea With Meal ({currentShift})
+                  <div className={`text-xs font-semibold capitalize ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
+                    Active Service: {currentShift} Shift
                   </div>
-                  <div className="text-[10px] text-slate-400">+{settings.teaPriceRwf} RWF deducted</div>
+                  <div className="text-[10px] text-slate-400">1 verified scan = 1 meal credit deducted</div>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  sound.playTap();
-                  setIncludeTea(!includeTea);
-                }}
-                className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
-                  includeTea ? 'bg-emerald-600' : (isDark ? 'bg-slate-700' : 'bg-slate-300')
-                }`}
-              >
-                <div
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                    includeTea ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
+              <span className="text-[10px] font-mono font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full uppercase">
+                {currentShift}
+              </span>
             </div>
 
             {/* Camera Viewfinder Mockup */}
@@ -664,58 +681,6 @@ export const OwnerApp: React.FC = () => {
                 </div>
               </div>
 
-              {/* Tea Counter Stepper */}
-              <div className={`p-4 rounded-2xl border space-y-2 transition-colors ${
-                isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200 shadow-xs'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Coffee className="w-4 h-4 text-emerald-500" />
-                    <div>
-                      <div className={`text-xs font-semibold ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        Optional Spiced Tea
-                      </div>
-                      <div className="text-[10px] text-slate-400">{settings.teaPriceRwf.toLocaleString()} RWF each</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.playTap();
-                        setWalkInTea(Math.max(0, walkInTea - 1));
-                      }}
-                      className={`w-8 h-8 rounded-lg font-bold text-base flex items-center justify-center transition-colors ${
-                        isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-                      }`}
-                    >
-                      -
-                    </button>
-                    <span className={`font-mono text-base font-bold w-5 text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      {walkInTea}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        sound.playTap();
-                        setWalkInTea(walkInTea + 1);
-                      }}
-                      className={`w-8 h-8 rounded-lg font-bold text-base flex items-center justify-center transition-colors ${
-                        isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-                      }`}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {walkInTea > 0 && (
-                  <div className="text-right text-xs font-mono text-slate-400 pt-1">
-                    Subtotal: {(walkInTea * settings.teaPriceRwf).toLocaleString()} RWF
-                  </div>
-                )}
-              </div>
 
               {/* Payment Method Selector & MoMo Ref */}
               <div className="space-y-2">
@@ -776,7 +741,7 @@ export const OwnerApp: React.FC = () => {
                 <div>
                   <div className="text-[11px] text-slate-400">Total Due From Walk-in</div>
                   <div className={`text-xl font-bold font-mono ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                    {(walkInMeals * settings.mealPriceRwf + walkInTea * settings.teaPriceRwf).toLocaleString()} RWF
+                    {(walkInMeals * settings.mealPriceRwf).toLocaleString()} RWF
                   </div>
                 </div>
 
@@ -1032,17 +997,62 @@ export const OwnerApp: React.FC = () => {
                   <span>Close Shift</span>
                 </button>
 
+                {/* Formatted PDF Export Modal Trigger */}
                 <button
-                  onClick={handleExportCsv}
-                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium flex items-center gap-1.5 transition-colors ${
-                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                  onClick={() => {
+                    sound.playTap();
+                    setShowPdfReportModal(true);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-emerald-400 border-slate-700' : 'bg-white hover:bg-slate-100 text-emerald-600 border-slate-200 shadow-xs'
                   }`}
+                  title="Open Formatted PDF Document Preview & Export"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Export PDF</span>
+                </button>
+
+                {/* Direct 1-tap PDF Download Icon Button */}
+                <button
+                  onClick={handleDirectDownloadPdf}
+                  className={`p-1.5 rounded-lg border text-xs font-medium flex items-center transition-colors ${
+                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-xs'
+                  }`}
+                  title="Download Formatted PDF Document (.pdf) Directly"
                 >
                   <Download className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Secondary Raw CSV Export */}
+                <button
+                  onClick={handleExportCsv}
+                  className={`px-2 py-1.5 rounded-lg border text-[11px] font-medium flex items-center gap-1 transition-colors ${
+                    isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700' : 'bg-white hover:bg-slate-100 text-slate-500 border-slate-200 shadow-xs'
+                  }`}
+                  title="Export raw spreadsheet data as CSV"
+                >
                   <span>CSV</span>
                 </button>
               </div>
             </div>
+
+            {/* PDF Export Success Toast Notification */}
+            {pdfDownloadedToast && (
+              <div className="p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center gap-2">
+                  <Check className="w-4 h-4 stroke-[3]" />
+                  <span>
+                    <strong>Official PDF Generated:</strong> Downloaded daily meal audit report for {todayDateStr}.
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowPdfReportModal(true)}
+                  className="underline text-[11px] font-semibold hover:text-emerald-300"
+                >
+                  View Preview
+                </button>
+              </div>
+            )}
 
             {/* Current Shift Summary Callout */}
             <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
@@ -1076,13 +1086,13 @@ export const OwnerApp: React.FC = () => {
                     </h3>
                   </div>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Daily consumption across Regular subscribers, Walk-in diners, and Spiced Teas
+                    Daily consumption across Regular subscribers, Guest passes, and Walk-in meals
                   </p>
                 </div>
 
                 {/* Filter Pill Controls */}
                 <div className="flex items-center gap-1 self-start sm:self-auto">
-                  {(['all', 'total', 'regular', 'walkin', 'tea'] as const).map(m => (
+                  {(['all', 'total', 'regular', 'walkin'] as const).map(m => (
                     <button
                       key={m}
                       onClick={() => {
@@ -1185,10 +1195,6 @@ export const OwnerApp: React.FC = () => {
                                     <span className="font-mono font-semibold">{d.guestMeals}</span>
                                   </div>
                                 )}
-                                <div className="flex items-center justify-between gap-3 text-emerald-600">
-                                  <span>● Spiced Tea:</span>
-                                  <span className="font-mono font-semibold">{d.teaCount} cups</span>
-                                </div>
                                 <div className="pt-1 mt-1 border-t border-slate-700/30 flex items-center justify-between gap-3 text-slate-400 font-mono text-[9px]">
                                   <span>Day Turnover:</span>
                                   <span className={isDark ? 'text-white' : 'text-slate-900'}>
@@ -1241,18 +1247,6 @@ export const OwnerApp: React.FC = () => {
                         activeDot={{ r: 4 }}
                       />
                     )}
-                    {(chartMetric === 'all' || chartMetric === 'tea') && (
-                      <Line
-                        type="monotone"
-                        dataKey="teaCount"
-                        name="Spiced Tea"
-                        stroke="#059669"
-                        strokeWidth={1.8}
-                        strokeDasharray="2 2"
-                        dot={{ r: 2, fill: '#059669' }}
-                        activeDot={{ r: 4 }}
-                      />
-                    )}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -1275,12 +1269,12 @@ export const OwnerApp: React.FC = () => {
               <div className={`p-3.5 rounded-2xl border transition-colors ${
                 isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200 shadow-xs'
               }`}>
-                <span className="text-[11px] text-slate-400 block">Spiced Tea Cups</span>
+                <span className="text-[11px] text-slate-400 block">Subscribers & Guests</span>
                 <span className="text-2xl font-bold font-mono text-emerald-500 mt-1 block">
-                  {todayTeaCount}
+                  {todayRegularMealsCount + todayGuestMealsCount}
                 </span>
                 <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {(todayTeaCount * settings.teaPriceRwf).toLocaleString()} RWF revenue
+                  {todayRegularMealsCount} pass + {todayGuestMealsCount} guest claims
                 </span>
               </div>
 
@@ -1385,7 +1379,6 @@ export const OwnerApp: React.FC = () => {
                         <span className="capitalize">{rec.type}</span>
                         <span>·</span>
                         <span>{new Date(rec.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        {rec.teaCount > 0 && <span className="text-emerald-500 font-semibold">· +Tea</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1489,20 +1482,6 @@ export const OwnerApp: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="text-[11px] font-medium text-slate-400 block mb-1">
-                  Optional Spiced Tea Price (RWF)
-                </label>
-                <input
-                  type="number"
-                  step={50}
-                  value={settings.teaPriceRwf}
-                  onChange={(e) => updateSettings({ teaPriceRwf: Number(e.target.value) })}
-                  className={`w-full px-3 py-2 rounded-xl font-mono text-xs border focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
-                    isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                  }`}
-                />
-              </div>
 
               {/* Proposal Section 9: Configurable max guest passes per day */}
               <div>
@@ -1742,12 +1721,6 @@ export const OwnerApp: React.FC = () => {
                     {lastScanResult.mealsRemaining} Meals
                   </span>
                 </div>
-                {lastScanResult.teaIncluded && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400">Included Add-on:</span>
-                    <span className="font-medium text-emerald-500">+ Spiced Tea (Recorded)</span>
-                  </div>
-                )}
                 <div className={`flex items-center justify-between text-[11px] pt-1 border-t ${
                   isDark ? 'border-slate-700' : 'border-slate-200'
                 }`}>
@@ -2007,6 +1980,29 @@ Notes: ${latestShiftReport.notes || 'None'}
                   <Copy className="w-3 h-3" />
                   <span>{shiftReportCopied ? 'Report Copied!' : 'Copy Summary for WhatsApp'}</span>
                 </button>
+
+                <div className="grid grid-cols-2 gap-1.5 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowShiftCloseModal(false);
+                      setShowPdfReportModal(true);
+                    }}
+                    className="py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold flex items-center justify-center gap-1 shadow-xs"
+                  >
+                    <FileText className="w-3 h-3" />
+                    <span>View Formatted PDF</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDirectDownloadPdf}
+                    className="py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold flex items-center justify-center gap-1"
+                  >
+                    <Download className="w-3 h-3 text-emerald-400" />
+                    <span>Download .PDF</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -2052,12 +2048,6 @@ Notes: ${latestShiftReport.notes || 'None'}
                   <span>Meal Serving</span>
                   <span>{(activeKitchenChitMeal.mealCount * settings.mealPriceRwf).toLocaleString()} RWF</span>
                 </div>
-                {activeKitchenChitMeal.teaCount > 0 && (
-                  <div className="flex justify-between">
-                    <span>Spiced Tea Cup</span>
-                    <span>{(activeKitchenChitMeal.teaCount * settings.teaPriceRwf).toLocaleString()} RWF</span>
-                  </div>
-                )}
               </div>
 
               <div className="flex justify-between font-bold text-xs pt-0.5">
@@ -2083,7 +2073,7 @@ Notes: ${latestShiftReport.notes || 'None'}
 KITCHEN CHIT #${activeKitchenChitMeal.id.slice(-8).toUpperCase()}
 Customer: ${activeKitchenChitMeal.customerName}
 Shift: ${activeKitchenChitMeal.shift || currentShift}
-Meals: ${activeKitchenChitMeal.mealCount} | Tea: ${activeKitchenChitMeal.teaCount}
+Meals: ${activeKitchenChitMeal.mealCount}
 Total: ${activeKitchenChitMeal.amountRwf.toLocaleString()} RWF
 Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
                   `.trim();
@@ -2160,28 +2150,121 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
                 </label>
                 <select
                   value={newCustCategory}
-                  onChange={(e) => setNewCustCategory(e.target.value as Customer['category'])}
+                  onChange={(e) => {
+                    const cat = e.target.value as Customer['category'];
+                    setNewCustCategory(cat);
+                    if (cat === 'Student') setNewCustDeposit(35000);
+                    else if (cat === 'Worker') setNewCustDeposit(45000);
+                  }}
                   className={`w-full px-3 py-2 rounded-xl text-xs border ${
                     isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                   }`}
                 >
-                  <option value="Student">Student (University / Campus)</option>
-                  <option value="Worker">Worker / Office</option>
+                  <option value="Student">Student (University / Campus - 35,000 FRW Plan)</option>
+                  <option value="Worker">Worker / Office (45,000 FRW Plan)</option>
                   <option value="Regular">Regular Resident</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-[11px] font-medium text-slate-400 block mb-1">
-                  Initial Deposit (RWF)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-medium text-slate-400">
+                    Prepaid Meal Plan / Deposit (RWF)
+                  </label>
+                  <span className="text-[10px] text-emerald-500 font-medium">Quick Select</span>
+                </div>
+
+                {/* 35,000 FRW & 45,000 FRW Featured Plan Cards */}
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTap();
+                      setNewCustDeposit(35000);
+                      setNewCustCategory('Student');
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      newCustDeposit === 35000
+                        ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500'
+                        : isDark
+                        ? 'border-slate-700 bg-slate-800/80 hover:bg-slate-700/80'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-bold text-emerald-500">Student Plan</span>
+                      <span className="text-[9px] font-mono text-slate-400">{Math.floor(35000 / settings.mealPriceRwf)} Meals</span>
+                    </div>
+                    <div className={`text-xs font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      35,000 FRW
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      @ {settings.mealPriceRwf.toLocaleString()} RWF/meal
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      sound.playTap();
+                      setNewCustDeposit(45000);
+                      setNewCustCategory('Worker');
+                    }}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      newCustDeposit === 45000
+                        ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500'
+                        : isDark
+                        ? 'border-slate-700 bg-slate-800/80 hover:bg-slate-700/80'
+                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase font-bold text-emerald-500">Worker Plan</span>
+                      <span className="text-[9px] font-mono text-slate-400">{Math.floor(45000 / settings.mealPriceRwf)} Meals</span>
+                    </div>
+                    <div className={`text-xs font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      45,000 FRW
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      @ {settings.mealPriceRwf.toLocaleString()} RWF/meal
+                    </div>
+                  </button>
+                </div>
+
+                {/* Additional Quick Amount Chips */}
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {[
+                    { label: '20,000 FRW (10 Meals)', val: 20000 },
+                    { label: '40,000 FRW (20 Meals)', val: 40000 },
+                    { label: '60,000 FRW (30 Meals)', val: 60000 },
+                  ].map(p => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => {
+                        sound.playTap();
+                        setNewCustDeposit(p.val);
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors ${
+                        newCustDeposit === p.val
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
+                          : isDark
+                          ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="relative">
                   <input
                     type="number"
                     step={settings.mealPriceRwf}
                     value={newCustDeposit}
                     onChange={(e) => setNewCustDeposit(Number(e.target.value))}
-                    className={`w-full px-3 py-2 rounded-xl text-sm font-mono border ${
+                    className={`w-full px-3 py-2 rounded-xl text-sm font-mono border focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                       isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                     }`}
                   />
@@ -2246,13 +2329,39 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
                     step={settings.mealPriceRwf}
                     value={topUpOwnerAmount}
                     onChange={(e) => setTopUpOwnerAmount(Number(e.target.value))}
-                    className={`w-full px-3 py-2 rounded-xl text-sm font-mono border ${
+                    className={`w-full px-3 py-2 rounded-xl text-sm font-mono border focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                       isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                     }`}
                   />
                   <span className="absolute right-3 top-2 text-xs font-mono text-emerald-500 font-semibold">
                     + {Math.floor(topUpOwnerAmount / settings.mealPriceRwf)} Meals
                   </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[
+                    { label: '35,000 FRW (17 Meals)', val: 35000 },
+                    { label: '45,000 FRW (22 Meals)', val: 45000 },
+                    { label: '20,000 FRW (10 Meals)', val: 20000 },
+                    { label: '60,000 FRW (30 Meals)', val: 60000 },
+                  ].map(p => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => {
+                        sound.playTap();
+                        setTopUpOwnerAmount(p.val);
+                      }}
+                      className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors ${
+                        topUpOwnerAmount === p.val
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
+                          : isDark
+                          ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -2319,6 +2428,20 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
           </div>
         </div>
       )}
+
+      {/* FORMATTED DAILY REPORT PDF EXPORT MODAL */}
+      <DailyReportPdfModal
+        isOpen={showPdfReportModal}
+        onClose={() => setShowPdfReportModal(false)}
+        settings={settings}
+        records={mealRecords}
+        payments={paymentRecords}
+        shiftCloseRecord={latestShiftReport || shiftCloseRecords[0]}
+        dateStr={todayDateStr}
+        currentShift={currentShift}
+        isDark={isDark}
+        onExportCsv={handleExportCsv}
+      />
 
       {/* BATCH REMAINDER MODAL */}
       <BatchReminderModal

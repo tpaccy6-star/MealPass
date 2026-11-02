@@ -43,7 +43,6 @@ export interface MealRecord {
   type: 'regular' | 'guest' | 'walk-in';
   guestName?: string;
   mealCount: number;
-  teaCount: number;
   amountRwf: number;
   paymentMethod: 'balance' | 'cash' | 'momo';
   momoReference?: string;
@@ -72,7 +71,6 @@ export interface RestaurantSettings {
   phone: string;
   momoMerchantCode: string;
   mealPriceRwf: number;
-  teaPriceRwf: number;
   maxGuestQrPerDay: number;
   lowBalanceThreshold: number;
   currency: string;
@@ -83,7 +81,6 @@ export interface QueuedScan {
   id: string;
   code: string;
   shift: MealShift;
-  includeTea: boolean;
   timestamp: string;
   customerName?: string;
 }
@@ -100,7 +97,6 @@ export interface ShiftCloseRecord {
   momoCountedRwf: number;
   momoDiscrepancyRwf: number;
   totalMealsServed: number;
-  totalTeaServed: number;
   subscribersServed: number;
   guestsServed: number;
   walkinsServed: number;
@@ -114,7 +110,6 @@ export interface ScanResult {
   customer?: Customer;
   qrPass?: QRCodePass;
   mealsRemaining?: number;
-  teaIncluded?: boolean;
   timestamp: string;
   errorType?: 'already_used' | 'exhausted' | 'not_found' | 'expired' | 'limit_reached';
 }
@@ -128,6 +123,5 @@ export interface DailyMealTrend {
   walkInMeals: number;
   guestMeals: number;
   totalMeals: number;
-  teaCount: number;
   totalRevenueRwf: number;
 }

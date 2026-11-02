@@ -46,12 +46,16 @@ export const BatchReminderModal: React.FC<BatchReminderModalProps> = ({
   );
 
   const generateMessage = (c: Customer, messageLang: 'en' | 'rw') => {
-    const replenishMeals = 10;
-    const replenishRwf = replenishMeals * settings.mealPriceRwf;
+    const replenishPlan = c.category === 'Student'
+      ? { meals: Math.floor(35000 / settings.mealPriceRwf), rwf: 35000, name: 'Campus Plan' }
+      : c.category === 'Worker'
+      ? { meals: Math.floor(45000 / settings.mealPriceRwf), rwf: 45000, name: 'Executive Plan' }
+      : { meals: 20, rwf: 40000, name: 'Monthly Plan' };
+
     if (messageLang === 'rw') {
-      return `Muraho ${c.name}, ifatabuguzi ryanyu ryo kurya muri ${settings.restaurantName} risigaranye amafunguro ${c.mealsRemaining}. Komeza urye neza wishyura kuri MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#) amafaranga ${replenishRwf.toLocaleString()} RWF (amafunguro 10). Murakoze!`;
+      return `Muraho ${c.name}, ifatabuguzi ryanyu ryo kurya muri ${settings.restaurantName} risigaranye amafunguro ${c.mealsRemaining}. Komeza urye neza wishyura kuri MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#) amafaranga ${replenishPlan.rwf.toLocaleString()} RWF (${replenishPlan.name}: amafunguro ${replenishPlan.meals}). Murakoze!`;
     }
-    return `Hello ${c.name}, your ${settings.restaurantName} meal pass has only ${c.mealsRemaining} meals remaining. To avoid cafeteria lunch queues, please replenish your balance (${replenishMeals} meals = ${replenishRwf.toLocaleString()} RWF) via MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#). Thank you!`;
+    return `Hello ${c.name}, your ${settings.restaurantName} meal pass has only ${c.mealsRemaining} meals remaining. To avoid cafeteria lunch queues, please replenish your balance (${replenishPlan.name}: ${replenishPlan.meals} meals = ${replenishPlan.rwf.toLocaleString()} RWF) via MTN Mobile Money (*182*8*1*${settings.momoMerchantCode}#). Thank you!`;
   };
 
   const handleCopySingle = (c: Customer) => {

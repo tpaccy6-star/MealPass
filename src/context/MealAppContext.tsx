@@ -35,8 +35,8 @@ interface MealAppContextType {
   paymentRecords: PaymentRecord[];
   createGuestPass: (guestName: string) => QRCodePass | null;
   deleteGuestPass: (code: string) => void;
-  scanQRCode: (code: string, addTea?: boolean) => ScanResult;
-  recordWalkIn: (mealCount: number, teaCount: number, paymentMethod: 'cash' | 'momo', note?: string, momoRef?: string) => MealRecord;
+  scanQRCode: (code: string) => ScanResult;
+  recordWalkIn: (mealCount: number, paymentMethod: 'cash' | 'momo', note?: string, momoRef?: string) => MealRecord;
   topUpCustomer: (customerId: string, amountRwf: number, method: 'momo' | 'cash' | 'bank', ref?: string, momoTxId?: string) => void;
   registerCustomer: (name: string, phone: string, initialDepositRwf: number, category?: Customer['category']) => Customer;
   resetToDefaultData: () => void;
@@ -63,7 +63,6 @@ const DEFAULT_SETTINGS: RestaurantSettings = {
   phone: "0788 768 148",
   momoMerchantCode: "602145",
   mealPriceRwf: 2000,
-  teaPriceRwf: 500,
   maxGuestQrPerDay: 3,
   lowBalanceThreshold: 5,
   currency: "RWF",
@@ -99,7 +98,7 @@ const DEFAULT_CUSTOMERS: Customer[] = [
     registeredDate: "2026-10-10",
     lastMealAt: "2026-10-25T13:10:00Z",
     category: "Worker",
-    notes: "Office worker, frequently adds spiced ginger tea.",
+    notes: "Office worker, daily lunchtime subscriber.",
   },
   {
     id: "cust-3",
@@ -152,13 +151,12 @@ const DEFAULT_MEAL_RECORDS: MealRecord[] = [
     shift: "lunch",
     type: "walk-in",
     mealCount: 1,
-    teaCount: 1,
-    amountRwf: 2500,
+    amountRwf: 2000,
     paymentMethod: "momo",
     momoReference: "MP261027.0830.A102",
     scannedBy: "Staff - Eric",
     status: "valid",
-    note: "Lunch buffet & spiced tea",
+    note: "Lunch buffet service",
   },
   {
     id: "meal-rec-2",
@@ -168,7 +166,6 @@ const DEFAULT_MEAL_RECORDS: MealRecord[] = [
     shift: "lunch",
     type: "regular",
     mealCount: 1,
-    teaCount: 0,
     amountRwf: 2000,
     paymentMethod: "balance",
     scannedBy: "Staff - Eric",
@@ -183,8 +180,7 @@ const DEFAULT_MEAL_RECORDS: MealRecord[] = [
     shift: "lunch",
     type: "regular",
     mealCount: 1,
-    teaCount: 1,
-    amountRwf: 2500,
+    amountRwf: 2000,
     paymentMethod: "balance",
     scannedBy: "Owner - Tuyiringire",
     status: "valid",
@@ -199,7 +195,6 @@ const DEFAULT_MEAL_RECORDS: MealRecord[] = [
     shift: "lunch",
     type: "guest",
     mealCount: 1,
-    teaCount: 0,
     amountRwf: 2000,
     paymentMethod: "balance",
     scannedBy: "Owner - Tuyiringire",
@@ -264,23 +259,21 @@ const computeWeeklyMealTrends = (records: MealRecord[], settings: RestaurantSett
     let regular = dayRecords.filter(r => r.type === 'regular').reduce((sum, r) => sum + r.mealCount, 0);
     let walkin = dayRecords.filter(r => r.type === 'walk-in').reduce((sum, r) => sum + r.mealCount, 0);
     let guest = dayRecords.filter(r => r.type === 'guest').reduce((sum, r) => sum + r.mealCount, 0);
-    let tea = dayRecords.reduce((sum, r) => sum + r.teaCount, 0);
     let rev = dayRecords.reduce((sum, r) => sum + r.amountRwf, 0);
 
     if (dayRecords.length === 0 && i > 0) {
       const baselineData = [
-        { reg: 22, wlk: 10, gst: 3, t: 14 },
-        { reg: 25, wlk: 12, gst: 4, t: 16 },
-        { reg: 29, wlk: 14, gst: 5, t: 21 },
-        { reg: 16, wlk: 18, gst: 2, t: 12 },
-        { reg: 12, wlk: 15, gst: 1, t: 8 },
-        { reg: 28, wlk: 11, gst: 4, t: 18 },
+        { reg: 22, wlk: 10, gst: 3 },
+        { reg: 25, wlk: 12, gst: 4 },
+        { reg: 29, wlk: 14, gst: 5 },
+        { reg: 16, wlk: 18, gst: 2 },
+        { reg: 12, wlk: 15, gst: 1 },
+        { reg: 28, wlk: 11, gst: 4 },
       ][(6 - i) % 6];
       regular = baselineData.reg;
       walkin = baselineData.wlk;
       guest = baselineData.gst;
-      tea = baselineData.t;
-      rev = (regular + walkin + guest) * settings.mealPriceRwf + tea * settings.teaPriceRwf;
+      rev = (regular + walkin + guest) * settings.mealPriceRwf;
     }
 
     trends.push({
@@ -290,7 +283,6 @@ const computeWeeklyMealTrends = (records: MealRecord[], settings: RestaurantSett
       walkInMeals: walkin,
       guestMeals: guest,
       totalMeals: regular + walkin + guest,
-      teaCount: tea,
       totalRevenueRwf: rev,
     });
   }
@@ -492,7 +484,7 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Process a single scan deduction
-  const processDeduction = (cleanCode: string, addTea: boolean): ScanResult => {
+  const processDeduction = (cleanCode: string): ScanResult => {
     const nowIso = new Date().toISOString();
     let pass = qrPasses.find(p => p.code === cleanCode);
 
@@ -571,7 +563,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         type: pass.type,
         guestName: pass.guestName,
         mealCount: 0,
-        teaCount: 0,
         amountRwf: 0,
         paymentMethod: 'balance',
         scannedBy: "Staff Scanner",
@@ -594,9 +585,7 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const newRemainingMeals = customer.mealsRemaining - 1;
-    const mealPrice = settings.mealPriceRwf;
-    const teaPrice = addTea ? settings.teaPriceRwf : 0;
-    const totalAmount = mealPrice + teaPrice;
+    const totalAmount = settings.mealPriceRwf;
     const newBalanceRwf = Math.max(0, customer.balanceRwf - totalAmount);
 
     let newStatus: Customer['status'] = 'active';
@@ -637,7 +626,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       type: pass.type,
       guestName: pass.guestName,
       mealCount: 1,
-      teaCount: addTea ? 1 : 0,
       amountRwf: totalAmount,
       paymentMethod: 'balance',
       scannedBy: "Staff POS",
@@ -660,7 +648,7 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const result: ScanResult = {
       success: true,
-      message: `Valid: 1 ${currentShift} meal deducted for ${customer.name}.${addTea ? ' Spiced tea added.' : ''} ${newRemainingMeals} meals remaining.`,
+      message: `Valid: 1 ${currentShift} meal deducted for ${customer.name}. ${newRemainingMeals} meals remaining.`,
       customer: {
         ...customer,
         mealsRemaining: newRemainingMeals,
@@ -669,7 +657,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       },
       qrPass: { ...pass, isUsed: true, usedAt: nowIso },
       mealsRemaining: newRemainingMeals,
-      teaIncluded: addTea,
       timestamp: nowIso,
     };
 
@@ -678,7 +665,7 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Scanning with Offline Mode interception
-  const scanQRCode = (code: string, addTea: boolean = false): ScanResult => {
+  const scanQRCode = (code: string): ScanResult => {
     const cleanCode = code.trim();
     const nowIso = new Date().toISOString();
 
@@ -688,7 +675,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         id: `offline-${Date.now()}`,
         code: cleanCode,
         shift: currentShift,
-        includeTea: addTea,
         timestamp: nowIso,
         customerName: customers.find(c => cleanCode.includes(c.id))?.name || 'Customer Pass',
       };
@@ -699,13 +685,12 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isQueuedOffline: true,
         message: `Offline Mode Active: Pass successfully queued locally. Meals will automatically sync when online.`,
         timestamp: nowIso,
-        teaIncluded: addTea,
       };
       setLastScanResult(offlineResult);
       return offlineResult;
     }
 
-    return processDeduction(cleanCode, addTea);
+    return processDeduction(cleanCode);
   };
 
   // Sync offline queue when back online
@@ -714,7 +699,7 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (offlineQueue.length === 0) return;
 
     offlineQueue.forEach(item => {
-      processDeduction(item.code, item.includeTea);
+      processDeduction(item.code);
     });
 
     setOfflineQueue([]);
@@ -724,14 +709,13 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Record Walk-In with optional MoMo Transaction Reference
   const recordWalkIn = (
     mealCount: number,
-    teaCount: number,
     paymentMethod: 'cash' | 'momo',
     note?: string,
     momoRef?: string
   ): MealRecord => {
     sound.playTap();
     const nowIso = new Date().toISOString();
-    const amount = mealCount * settings.mealPriceRwf + teaCount * settings.teaPriceRwf;
+    const amount = mealCount * settings.mealPriceRwf;
     const finalMomoRef = momoRef?.trim() || (paymentMethod === 'momo' ? `MOMO-${Math.floor(1000000 + Math.random() * 9000000)}` : undefined);
 
     const record: MealRecord = {
@@ -742,7 +726,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       shift: currentShift,
       type: 'walk-in',
       mealCount,
-      teaCount,
       amountRwf: amount,
       paymentMethod,
       momoReference: finalMomoRef,
@@ -831,7 +814,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .reduce((sum, r) => sum + r.amountRwf, 0);
 
     const totalMealsServed = shiftMeals.reduce((sum, r) => sum + r.mealCount, 0);
-    const totalTeaServed = shiftMeals.reduce((sum, r) => sum + r.teaCount, 0);
     const subscribersServed = shiftMeals.filter(r => r.type === 'regular').reduce((sum, r) => sum + r.mealCount, 0);
     const guestsServed = shiftMeals.filter(r => r.type === 'guest').reduce((sum, r) => sum + r.mealCount, 0);
     const walkinsServed = shiftMeals.filter(r => r.type === 'walk-in').reduce((sum, r) => sum + r.mealCount, 0);
@@ -848,7 +830,6 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       momoCountedRwf: countedMomo,
       momoDiscrepancyRwf: countedMomo - momoRecorded,
       totalMealsServed,
-      totalTeaServed,
       subscribersServed,
       guestsServed,
       walkinsServed,

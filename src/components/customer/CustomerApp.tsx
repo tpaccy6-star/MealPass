@@ -11,7 +11,6 @@ import {
   Clock, 
   Wallet, 
   AlertTriangle, 
-  Coffee, 
   Share2, 
   Plus, 
   CheckCircle2, 
@@ -24,11 +23,17 @@ import {
   Sun, 
   Moon,
   Receipt,
-  Printer
+  Printer,
+  Bell
 } from 'lucide-react';
 import { useMealApp } from '../../context/MealAppContext';
 import { QRCodePass, MealRecord, MealShift } from '../../types';
 import { sound } from '../../utils/audio';
+import { RadialMealGauge } from './RadialMealGauge';
+import { DateStripSelector } from './DateStripSelector';
+import { QuickServiceCards } from './QuickServiceCards';
+import { FloatingNavDock } from './FloatingNavDock';
+import { NotificationSheet } from './NotificationSheet';
 
 export const CustomerApp: React.FC = () => {
   const {
@@ -52,7 +57,7 @@ export const CustomerApp: React.FC = () => {
   const isDark = theme === 'dark';
 
   const [activeTab, setActiveTab] = useState<'pass' | 'guests' | 'history' | 'wallet'>('pass');
-  const [includeTeaPref, setIncludeTeaPref] = useState(false);
+  const [isTakeawayPref, setIsTakeawayPref] = useState(false);
   const [showNewGuestModal, setShowNewGuestModal] = useState(false);
   const [guestNameInput, setGuestNameInput] = useState('');
   const [guestLimitNotice, setGuestLimitNotice] = useState<string | null>(null);
@@ -63,6 +68,9 @@ export const CustomerApp: React.FC = () => {
   const [momoTxReference, setMomoTxReference] = useState('');
   const [isProcessingMomo, setIsProcessingMomo] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  
+  const [showNotificationSheet, setShowNotificationSheet] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   
   // Kitchen slip / digital receipt modal state
   const [selectedReceiptMeal, setSelectedReceiptMeal] = useState<MealRecord | null>(null);
@@ -143,7 +151,6 @@ Customer: ${rec.customerName}
 ---------------------------------
 Item               Qty     Amount
 Meal Serving        ${rec.mealCount}    ${(rec.mealCount * settings.mealPriceRwf).toLocaleString()} RWF
-Spiced Tea          ${rec.teaCount}    ${(rec.teaCount * settings.teaPriceRwf).toLocaleString()} RWF
 ---------------------------------
 TOTAL PAID:        ${rec.amountRwf.toLocaleString()} RWF
 Paid via: ${rec.paymentMethod === 'balance' ? 'Prepaid Balance' : rec.paymentMethod.toUpperCase()}
@@ -160,40 +167,77 @@ Thank you for dining with us!
   };
 
   return (
-    <div className={`flex-1 flex flex-col ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'} select-none pb-16`}>
+    <div className={`flex-1 flex flex-col ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'} select-none relative min-h-full`}>
       
-      {/* Mobile App Header (React Native Native-stack Bar) */}
-      <div className={`px-5 pt-2 pb-3 backdrop-blur-md border-b sticky top-0 z-30 transition-colors ${
-        isDark ? 'bg-slate-900/90 border-slate-800/80 text-white' : 'bg-white/90 border-slate-200 text-slate-900 shadow-xs'
+      {/* Mobile App Header (Inspired by Mockups 1, 2, & 4) */}
+      <div className={`px-4 pt-2.5 pb-3 backdrop-blur-md border-b sticky top-0 z-30 transition-colors ${
+        isDark ? 'bg-slate-900/95 border-slate-800/80 text-white' : 'bg-white/95 border-slate-200 text-slate-900 shadow-xs'
       }`}>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-3">
+          {/* User Profile Info */}
           <div className="flex items-center gap-2.5">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-              isDark ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-            }`}>
-              {activeCustomer.name.slice(0, 2).toUpperCase()}
-            </div>
-            <div>
-              <div className="text-[11px] text-slate-400 flex items-center gap-1 font-medium">
-                <span>{settings.restaurantName}</span>
-                <span className="text-slate-600">·</span>
-                <span className="text-emerald-500 font-mono text-[10px]">Kigali</span>
+            <div className="relative">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs ring-2 ring-emerald-500/30 ${
+                isDark ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-700'
+              }`}>
+                {activeCustomer.avatarUrl ? (
+                  <img
+                    src={activeCustomer.avatarUrl}
+                    alt={activeCustomer.name}
+                    className="w-full h-full rounded-full object-cover"
+                  />
+                ) : (
+                  activeCustomer.name.slice(0, 2).toUpperCase()
+                )}
               </div>
-              <h1 className={`text-sm font-semibold leading-tight ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                {activeCustomer.name.split(' ')[0]}'s MealPass
-              </h1>
+              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-slate-900" />
+            </div>
+
+            <div>
+              <div className="text-[11px] text-slate-400 font-medium flex items-center gap-1">
+                <span>Muraho, {activeCustomer.name.split(' ')[0]} 👋</span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className={`text-xs font-bold leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                  {settings.restaurantName}
+                </span>
+                <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 font-mono">
+                  {activeCustomer.category}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Quick Customer Switcher for Demonstration */}
-          <div className="relative">
+          {/* Header Action Tools: Notifications Bell + Customer Switcher */}
+          <div className="flex items-center gap-1.5">
+            {/* Notification Bell Button */}
+            <button
+              type="button"
+              onClick={() => {
+                sound.playTap();
+                setShowNotificationSheet(true);
+              }}
+              className={`relative w-8 h-8 rounded-full border flex items-center justify-center transition-colors ${
+                isDark
+                  ? 'bg-slate-800 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
+                  : 'bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+              }`}
+              title="Notifications"
+            >
+              <Bell className="w-4 h-4" />
+              {(isLow || isExhausted) && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+              )}
+            </button>
+
+            {/* Quick Demo Customer Switcher */}
             <select
               value={activeCustomer.id}
               onChange={(e) => {
                 sound.playTap();
                 setActiveCustomerId(e.target.value);
               }}
-              className={`text-xs border rounded-lg px-2 py-1 pr-6 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium ${
+              className={`text-[11px] border rounded-full px-2 py-1 pr-5 font-semibold focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
                 isDark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-800'
               }`}
             >
@@ -206,43 +250,72 @@ Thank you for dining with us!
           </div>
         </div>
 
-        {/* Shift Indicator & Selector (Proposal Section 9: Multi-shift lunch/dinner) */}
-        <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-700/20 text-xs">
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-            <span>Shift:</span>
-            <span className="font-semibold text-emerald-500 capitalize">{currentShift} service</span>
-          </div>
-
-          <div className={`flex items-center p-0.5 rounded-lg border text-[10px] ${
-            isDark ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-100 border-slate-200'
-          }`}>
-            {(['lunch', 'dinner'] as MealShift[]).map(s => (
+        {/* Segmented Shift Pill (Inspired by [Online | Offline] in Mockups 2 & 4) */}
+        <div className={`p-1 rounded-2xl border flex items-center transition-colors ${
+          isDark ? 'bg-slate-950/80 border-slate-800' : 'bg-slate-100 border-slate-200'
+        }`}>
+          {(['lunch', 'dinner'] as MealShift[]).map(s => {
+            const isActive = currentShift === s;
+            return (
               <button
                 key={s}
+                type="button"
                 onClick={() => {
                   sound.playTap();
                   setCurrentShift(s);
                 }}
-                className={`px-2 py-0.5 rounded-md font-semibold capitalize transition-colors ${
-                  currentShift === s
-                    ? 'bg-emerald-600 text-white shadow-xs'
+                className={`flex-1 py-1.5 rounded-xl text-xs font-bold capitalize flex items-center justify-center gap-1.5 transition-all ${
+                  isActive
+                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 scale-[1.01]'
                     : isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {s}
+                <span>{s === 'lunch' ? '☀️ Lunch Shift (12:00 – 15:00)' : '🌙 Dinner Shift (18:00 – 21:00)'}</span>
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Main Tab Content */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
 
-        {/* 1. PASS & DAILY QR TAB */}
+        {/* 1. PASS & DAILY QR TAB (Inspired by Mockups 1, 2, 3, & 4) */}
         {activeTab === 'pass' && (
           <div className="space-y-4 animate-in fade-in duration-200">
-            
+            {/* Horizontal Date Strip Carousel (Inspired by All 4 Reference Mockups) */}
+            <DateStripSelector
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+              isDark={isDark}
+              mealRecords={mealRecords}
+              customerId={activeCustomer.id}
+            />
+
+            {/* Semi-Circular Radial Meal Allowance Gauge (Inspired by Image 1 Measurement Tracker) */}
+            <RadialMealGauge
+              remaining={activeCustomer.mealsRemaining}
+              total={activeCustomer.totalMealsPurchased || 25}
+              balanceRwf={activeCustomer.balanceRwf}
+              category={activeCustomer.category}
+              isDark={isDark}
+              onTopUpClick={() => setShowTopUpModal(true)}
+            />
+
+            {/* 2-Column Quick Service Cards with Top-Right Checkmarks (Inspired by Mockups 2 & 4) */}
+            <QuickServiceCards
+              isDark={isDark}
+              currentShift={currentShift}
+              isPassUsed={todayQrPass.isUsed}
+              isTakeaway={isTakeawayPref}
+              onToggleTakeaway={() => setIsTakeawayPref(!isTakeawayPref)}
+              guestCount={guestPasses.length}
+              maxGuests={settings.maxGuestQrPerDay}
+              onNewGuestClick={() => setShowNewGuestModal(true)}
+              onTopUpClick={() => setShowTopUpModal(true)}
+              momoMerchantCode={settings.momoMerchantCode}
+            />
+
             {/* Balance Alert Banner (Proposal requirement: Remind when 5 meals remain and when finished) */}
             {isExhausted ? (
               <div className={`p-3.5 rounded-2xl border flex items-start gap-3 transition-colors ${
@@ -369,32 +442,34 @@ Thank you for dining with us!
                 </div>
               </div>
 
-              {/* Optional Tea Add-on Switch */}
+              {/* Optional Takeaway Pack Switch */}
               <div className={`mt-4 w-full pt-3 border-t flex items-center justify-between px-1 ${
                 isDark ? 'border-slate-700/60' : 'border-slate-200'
               }`}>
                 <div className="flex items-center gap-2 text-left">
-                  <Coffee className={`w-4 h-4 ${includeTeaPref ? 'text-emerald-500' : 'text-slate-400'}`} />
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isTakeawayPref ? 'bg-emerald-500/15 text-emerald-500' : 'bg-slate-700/30 text-slate-400'}`}>
+                    <QrCode className="w-3.5 h-3.5" />
+                  </div>
                   <div>
                     <div className={`text-xs font-medium ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
-                      Include Spiced Tea
+                      Takeaway Packaging
                     </div>
-                    <div className="text-[10px] text-slate-400">+{settings.teaPriceRwf} RWF / tea unit</div>
+                    <div className="text-[10px] text-slate-400">{isTakeawayPref ? 'Packed for takeaway' : 'Standard dine-in buffet'}</div>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
                     sound.playTap();
-                    setIncludeTeaPref(!includeTeaPref);
+                    setIsTakeawayPref(!isTakeawayPref);
                   }}
                   className={`w-11 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors ${
-                    includeTeaPref ? 'bg-emerald-600' : (isDark ? 'bg-slate-700' : 'bg-slate-300')
+                    isTakeawayPref ? 'bg-emerald-600' : (isDark ? 'bg-slate-700' : 'bg-slate-300')
                   }`}
                 >
                   <div
                     className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                      includeTeaPref ? 'translate-x-5' : 'translate-x-0'
+                      isTakeawayPref ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
                 </button>
@@ -402,54 +477,7 @@ Thank you for dining with us!
 
             </div>
 
-            {/* Meal Countdown Summary Card */}
-            <div className={`rounded-2xl border p-4 transition-colors ${
-              isDark ? 'bg-slate-800/80 border-slate-700/80' : 'bg-white border-slate-200 shadow-xs'
-            }`}>
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <div className="text-xs text-slate-400">Meals Remaining</div>
-                  <div className={`text-2xl font-bold font-mono tracking-tight flex items-baseline gap-1.5 mt-0.5 ${
-                    isDark ? 'text-white' : 'text-slate-900'
-                  }`}>
-                    <span>{activeCustomer.mealsRemaining}</span>
-                    <span className="text-xs text-slate-400 font-sans font-normal">
-                      / {activeCustomer.totalMealsPurchased} paid
-                    </span>
-                  </div>
-                </div>
 
-                <div className="text-right">
-                  <div className="text-xs text-slate-400">Prepaid Value</div>
-                  <div className="text-sm font-semibold font-mono text-emerald-500 mt-0.5">
-                    {activeCustomer.balanceRwf.toLocaleString()} RWF
-                  </div>
-                </div>
-              </div>
-
-              {/* Progress Countdown Bar */}
-              <div className={`w-full h-2.5 rounded-full overflow-hidden mb-2 ${
-                isDark ? 'bg-slate-700/70' : 'bg-slate-200'
-              }`}>
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    isExhausted ? 'bg-slate-400 w-0' : 'bg-emerald-500'
-                  }`}
-                  style={{
-                    width: `${Math.min(100, (activeCustomer.mealsRemaining / (activeCustomer.totalMealsPurchased || 25)) * 100)}%`,
-                  }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>{settings.mealPriceRwf.toLocaleString()} RWF per meal</span>
-                <span>
-                  {activeCustomer.mealsRemaining > 0
-                    ? `~${activeCustomer.mealsRemaining} lunches remaining`
-                    : 'Balance depleted'}
-                </span>
-              </div>
-            </div>
 
             {/* Quick Guest Pass Callout (Proposal: "More than one QR code" + Section 9 daily limit) */}
             <div className={`rounded-2xl border p-3.5 flex items-center justify-between gap-3 transition-colors ${
@@ -650,12 +678,11 @@ Thank you for dining with us!
                       <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                         rec.status === 'valid' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-700 text-slate-400'
                       }`}>
-                        {rec.teaCount > 0 ? <Coffee className="w-3.5 h-3.5" /> : <QrCode className="w-3.5 h-3.5" />}
+                        <QrCode className="w-3.5 h-3.5" />
                       </div>
                       <div>
                         <div className={`font-medium ${isDark ? 'text-slate-200' : 'text-slate-900'}`}>
                           {rec.type === 'guest' ? `Guest Meal (${rec.guestName || 'Friend'})` : 'Daily Lunch'}
-                          {rec.teaCount > 0 && ' + Spiced Tea'}
                         </div>
                         <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
                           <span className="capitalize text-emerald-500 font-semibold">{rec.shift || currentShift}</span>
@@ -792,28 +819,35 @@ Thank you for dining with us!
                 {[
                   { meals: 5, price: 10000, label: "Weekly (5 Meals)" },
                   { meals: 10, price: 20000, label: "2 Weeks (10 Meals)" },
+                  { meals: 17, price: 35000, label: "Campus Plan (35,000 FRW)", badge: "Student Favorite" },
                   { meals: 20, price: 40000, label: "Monthly (20 Meals)" },
+                  { meals: 22, price: 45000, label: "Executive Plan (45,000 FRW)", badge: "Office Choice" },
                   { meals: 30, price: 60000, label: "Full Month (30 Meals)" },
                 ].map(pkg => (
                   <button
-                    key={pkg.meals}
+                    key={pkg.label}
                     onClick={() => {
                       sound.playTap();
                       setTopUpAmount(pkg.price);
                       setShowTopUpModal(true);
                     }}
-                    className={`p-3 rounded-xl border text-left transition-colors flex flex-col justify-between ${
+                    className={`p-3 rounded-xl border text-left transition-colors flex flex-col justify-between relative overflow-hidden ${
                       isDark 
                         ? 'bg-slate-800/80 hover:bg-slate-700/80 border-slate-700' 
                         : 'bg-white hover:bg-slate-50 border-slate-200 shadow-xs'
                     }`}
                   >
+                    {pkg.badge && (
+                      <span className="inline-block text-[9px] font-semibold uppercase tracking-wider text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded-full mb-1 w-fit">
+                        {pkg.badge}
+                      </span>
+                    )}
                     <div>
                       <div className={`text-xs font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         {pkg.label}
                       </div>
                       <div className="text-[11px] text-slate-400 mt-0.5">
-                        {settings.mealPriceRwf.toLocaleString()} RWF / meal
+                        {pkg.meals} Meals · {settings.mealPriceRwf.toLocaleString()} RWF / meal
                       </div>
                     </div>
                     <div className="mt-2 text-xs font-mono font-bold text-emerald-500">
@@ -882,68 +916,23 @@ Thank you for dining with us!
 
       </div>
 
-      {/* React Native Bottom Tab Navigation Bar */}
-      <div className={`h-16 shrink-0 backdrop-blur-md border-t px-2 grid grid-cols-4 items-center z-30 transition-colors ${
-        isDark ? 'bg-slate-900/95 border-slate-800' : 'bg-white/95 border-slate-200 shadow-sm'
-      }`}>
-        <button
-          onClick={() => {
-            sound.playTap();
-            setActiveTab('pass');
-          }}
-          className={`flex flex-col items-center justify-center h-full transition-colors ${
-            activeTab === 'pass' ? 'text-emerald-500 font-semibold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <QrCode className="w-5 h-5" />
-          <span className="text-[10px] mt-1">My Pass</span>
-        </button>
+      {/* Floating Island Navigation Dock (Inspired by Mockups 1, 3, & 4) */}
+      <FloatingNavDock
+        activeTab={activeTab}
+        onTabChange={(tab) => setActiveTab(tab)}
+        guestCount={guestPasses.length}
+        isLow={isLow}
+        isDark={isDark}
+      />
 
-        <button
-          onClick={() => {
-            sound.playTap();
-            setActiveTab('guests');
-          }}
-          className={`relative flex flex-col items-center justify-center h-full transition-colors ${
-            activeTab === 'guests' ? 'text-emerald-500 font-semibold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Users className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Guests</span>
-          {guestPasses.length > 0 && (
-            <span className="absolute top-2 right-6 w-2 h-2 rounded-full bg-emerald-500" />
-          )}
-        </button>
-
-        <button
-          onClick={() => {
-            sound.playTap();
-            setActiveTab('history');
-          }}
-          className={`flex flex-col items-center justify-center h-full transition-colors ${
-            activeTab === 'history' ? 'text-emerald-500 font-semibold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Clock className="w-5 h-5" />
-          <span className="text-[10px] mt-1">History</span>
-        </button>
-
-        <button
-          onClick={() => {
-            sound.playTap();
-            setActiveTab('wallet');
-          }}
-          className={`relative flex flex-col items-center justify-center h-full transition-colors ${
-            activeTab === 'wallet' ? 'text-emerald-500 font-semibold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Wallet className="w-5 h-5" />
-          <span className="text-[10px] mt-1">Wallet</span>
-          {isLow && (
-            <span className="absolute top-2 right-6 w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          )}
-        </button>
-      </div>
+      {/* NOTIFICATION SHEET MODAL (Triggered by Top-Bar Bell) */}
+      <NotificationSheet
+        isOpen={showNotificationSheet}
+        onClose={() => setShowNotificationSheet(false)}
+        customer={activeCustomer}
+        settings={settings}
+        isDark={isDark}
+      />
 
       {/* CREATE GUEST PASS MODAL */}
       {showNewGuestModal && (
@@ -1121,6 +1110,32 @@ Thank you for dining with us!
                     = {Math.floor(topUpAmount / settings.mealPriceRwf)} Meals
                   </span>
                 </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[
+                    { label: '35,000 FRW (17 Meals)', val: 35000 },
+                    { label: '45,000 FRW (22 Meals)', val: 45000 },
+                    { label: '20,000 FRW (10 Meals)', val: 20000 },
+                    { label: '60,000 FRW (30 Meals)', val: 60000 },
+                  ].map(chip => (
+                    <button
+                      key={chip.val}
+                      type="button"
+                      onClick={() => {
+                        sound.playTap();
+                        setTopUpAmount(chip.val);
+                      }}
+                      className={`text-[10px] font-medium px-2 py-1 rounded-lg border transition-colors ${
+                        topUpAmount === chip.val
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold'
+                          : isDark
+                          ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>
@@ -1231,12 +1246,6 @@ Thank you for dining with us!
                   <span>Regular Meal Serving</span>
                   <span>{(selectedReceiptMeal.mealCount * settings.mealPriceRwf).toLocaleString()} RWF</span>
                 </div>
-                {selectedReceiptMeal.teaCount > 0 && (
-                  <div className="flex justify-between">
-                    <span>Spiced Tea Cup</span>
-                    <span>{(selectedReceiptMeal.teaCount * settings.teaPriceRwf).toLocaleString()} RWF</span>
-                  </div>
-                )}
               </div>
 
               <div className="flex justify-between font-bold text-xs pt-0.5">

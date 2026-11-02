@@ -11,7 +11,6 @@ import {
   FileText, 
   RotateCcw, 
   Zap, 
-  Coffee, 
   Shield, 
   Check, 
   Sun, 
@@ -29,7 +28,6 @@ function MainShell() {
   const [viewMode, setViewMode] = useState<ViewMode>('dual');
   const [useDeviceFrame, setUseDeviceFrame] = useState(true);
   const [showProposalModal, setShowProposalModal] = useState(false);
-  const [bridgeIncludeTea, setBridgeIncludeTea] = useState(false);
 
   const {
     activeCustomer,
@@ -47,7 +45,7 @@ function MainShell() {
 
   const handleQuickBridgeScan = (targetCode: string) => {
     sound.playTap();
-    scanQRCode(targetCode, bridgeIncludeTea);
+    scanQRCode(targetCode);
   };
 
   return (
@@ -217,20 +215,6 @@ function MainShell() {
             </div>
 
             <div className="flex items-center gap-3 shrink-0">
-              {/* Optional Tea Checkbox */}
-              <label className={`flex items-center gap-1.5 cursor-pointer select-none ${
-                isDark ? 'text-slate-300' : 'text-slate-700'
-              }`}>
-                <input
-                  type="checkbox"
-                  checked={bridgeIncludeTea}
-                  onChange={(e) => setBridgeIncludeTea(e.target.checked)}
-                  className="rounded bg-slate-800 border-slate-700 text-emerald-600 focus:ring-0 w-3.5 h-3.5"
-                />
-                <Coffee className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-[11px]">+ Tea (+{settings.teaPriceRwf} RWF)</span>
-              </label>
-
               {/* Instant Scan Button */}
               <button
                 onClick={() => handleQuickBridgeScan(todayQrPass.code)}
@@ -333,8 +317,6 @@ function MainShell() {
         <div className="flex items-center gap-3">
           <span>Meal Price: {settings.mealPriceRwf.toLocaleString()} RWF</span>
           <span>·</span>
-          <span>Tea: {settings.teaPriceRwf.toLocaleString()} RWF</span>
-          <span>·</span>
           <span className="text-emerald-500 font-semibold">Proposal PRO-2026-001</span>
         </div>
       </footer>
@@ -400,7 +382,7 @@ function MainShell() {
                   { title: "New QR code every day", desc: "Unique daily QR code that works once per meal, preventing screenshots or reuse." },
                   { title: "More than one QR code (Guests)", desc: "Customer can create extra guest QR codes to buy lunch for friends, with each scan deducting 1 meal." },
                   { title: "Automatic deduction & Verification", desc: "Instant 'Valid' with countdown or 'Not Valid' when balance is 0 or code already scanned today." },
-                  { title: "Optional Tea", desc: "Toggle spiced tea with meals, tracked separately and deducted from customer balance." },
+                  { title: "Multi-Shift Flexibility (Lunch & Dinner)", desc: "Independent QR token handling and validation across Lunch and Dinner cafeteria shifts." },
                   { title: "Walk-in Customers", desc: "Instant POS counter for pass-by diners paying cash or MTN Mobile Money." },
                   { title: "Countdown & 5-Meal Reminder", desc: "Balance countdown bar with proactive alerts when 5 meals remain and when balance runs out." },
                 ].map((item, idx) => (
