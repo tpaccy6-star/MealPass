@@ -84,7 +84,7 @@ export const CustomerApp: React.FC = () => {
   const customerMeals = mealRecords.filter(r => r.customerId === activeCustomer.id);
   const customerPayments = paymentRecords.filter(r => r.customerId === activeCustomer.id);
 
-  const handleCreateGuest = (e: React.FormEvent) => {
+  const handleCreateGuest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guestNameInput.trim()) return;
     if (activeCustomer.mealsRemaining <= 0) {
@@ -97,7 +97,7 @@ export const CustomerApp: React.FC = () => {
       return;
     }
 
-    const newPass = createGuestPass(guestNameInput);
+    const newPass = await createGuestPass(guestNameInput);
     if (!newPass) {
       setGuestLimitNotice(`Daily limit reached (${settings.maxGuestQrPerDay} max).`);
       return;

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   Customer, 
@@ -19,10 +19,11 @@ import {
   ShiftCloseRecord 
 } from '../types';
 import { sound } from '../utils/audio';
+import { api, DatabaseStatus } from '../utils/apiClient';
 
 interface MealAppContextType {
   settings: RestaurantSettings;
-  updateSettings: (newSettings: Partial<RestaurantSettings>) => void;
+  updateSettings: (newSettings: Partial<RestaurantSettings>) => Promise<void>;
   customers: Customer[];
   activeCustomer: Customer;
   setActiveCustomerId: (id: string) => void;
@@ -33,13 +34,13 @@ interface MealAppContextType {
   guestPasses: QRCodePass[];
   mealRecords: MealRecord[];
   paymentRecords: PaymentRecord[];
-  createGuestPass: (guestName: string) => QRCodePass | null;
-  deleteGuestPass: (code: string) => void;
-  scanQRCode: (code: string) => ScanResult;
-  recordWalkIn: (mealCount: number, paymentMethod: 'cash' | 'momo', note?: string, momoRef?: string) => MealRecord;
-  topUpCustomer: (customerId: string, amountRwf: number, method: 'momo' | 'cash' | 'bank', ref?: string, momoTxId?: string) => void;
-  registerCustomer: (name: string, phone: string, initialDepositRwf: number, category?: Customer['category']) => Customer;
-  resetToDefaultData: () => void;
+  createGuestPass: (guestName: string) => Promise<QRCodePass | null>;
+  deleteGuestPass: (code: string) => Promise<void>;
+  scanQRCode: (code: string) => Promise<ScanResult>;
+  recordWalkIn: (mealCount: number, paymentMethod: 'cash' | 'momo', note?: string, momoRef?: string) => Promise<MealRecord>;
+  topUpCustomer: (customerId: string, amountRwf: number, method: 'momo' | 'cash' | 'bank', ref?: string, momoTxId?: string) => Promise<void>;
+  registerCustomer: (name: string, phone: string, initialDepositRwf: number, category?: Customer['category']) => Promise<Customer>;
+  resetToDefaultData: () => Promise<void>;
   lastScanResult: ScanResult | null;
   clearLastScanResult: () => void;
   theme: ThemeMode;
@@ -49,12 +50,17 @@ interface MealAppContextType {
   isOfflineMode: boolean;
   toggleOfflineMode: () => void;
   offlineQueue: QueuedScan[];
-  syncOfflineQueue: () => void;
+  syncOfflineQueue: () => Promise<void>;
   // Shift Close Reconciliation
   shiftCloseRecords: ShiftCloseRecord[];
-  closeShift: (countedCash: number, countedMomo: number, notes?: string) => ShiftCloseRecord;
+  closeShift: (countedCash: number, countedMomo: number, notes?: string) => Promise<ShiftCloseRecord>;
   // MoMo Reconciliation
-  reconcilePayment: (id: string, reconciled: boolean) => void;
+  reconcilePayment: (id: string, reconciled: boolean) => Promise<void>;
+  // Neon Database Management
+  databaseStatus: DatabaseStatus | null;
+  refreshDatabaseStatus: () => Promise<void>;
+  connectNeonDatabase: (connectionString: string) => Promise<{ success: boolean; message: string }>;
+  isSyncing: boolean;
 }
 
 const DEFAULT_SETTINGS: RestaurantSettings = {
@@ -186,21 +192,6 @@ const DEFAULT_MEAL_RECORDS: MealRecord[] = [
     status: "valid",
     remainingMealsAfter: 4,
   },
-  {
-    id: "meal-rec-4",
-    timestamp: "2026-10-26T12:46:00Z",
-    customerId: "cust-1",
-    customerName: "Tuyiringire Pacifique",
-    guestName: "Emmanuel (Guest)",
-    shift: "lunch",
-    type: "guest",
-    mealCount: 1,
-    amountRwf: 2000,
-    paymentMethod: "balance",
-    scannedBy: "Owner - Tuyiringire",
-    status: "valid",
-    remainingMealsAfter: 4,
-  },
 ];
 
 const DEFAULT_PAYMENTS: PaymentRecord[] = [
@@ -226,17 +217,6 @@ const DEFAULT_PAYMENTS: PaymentRecord[] = [
     method: "momo",
     referenceNo: "MTN-RW-7712390",
     momoTransactionId: "MP261010.1420.K4418",
-    reconciled: true,
-  },
-  {
-    id: "pay-3",
-    timestamp: "2026-10-01T11:00:00Z",
-    customerId: "cust-1",
-    customerName: "Tuyiringire Pacifique",
-    amountRwf: 50000,
-    mealsCredited: 25,
-    method: "cash",
-    referenceNo: "CSH-20261001-09",
     reconciled: true,
   },
 ];
@@ -341,35 +321,21 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [qrPasses, setQrPasses] = useState<QRCodePass[]>(() => {
     const saved = localStorage.getItem('nexa_meal_qrpasses');
     if (saved) return JSON.parse(saved);
-    const today = new Date().toISOString().split('T')[0];
     return [
       {
-        code: `NEXA-cust-1-${today}-LUNCH-REGULAR`,
+        code: `NEXA-cust-1-${todayDateStr}-LUNCH-REGULAR`,
         type: 'regular',
         shift: 'lunch',
         customerId: 'cust-1',
         customerName: 'Tuyiringire Pacifique',
-        dateValid: today,
+        dateValid: todayDateStr,
         isUsed: false,
         createdTime: '08:00 AM',
-      },
-      {
-        code: `NEXA-cust-1-${today}-LUNCH-GUEST-EMMA`,
-        type: 'guest',
-        shift: 'lunch',
-        customerId: 'cust-1',
-        customerName: 'Tuyiringire Pacifique',
-        guestName: 'Aimable (Friend)',
-        dateValid: today,
-        isUsed: false,
-        createdTime: '09:15 AM',
       },
     ];
   });
 
   const [lastScanResult, setLastScanResult] = useState<ScanResult | null>(null);
-
-  // Operational State: Shift & Offline Queue
   const [currentShift, setCurrentShift] = useState<MealShift>(settings.currentShift || 'lunch');
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(false);
   const [offlineQueue, setOfflineQueue] = useState<QueuedScan[]>(() => {
@@ -381,6 +347,11 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Neon DB Connection state
+  const [databaseStatus, setDatabaseStatus] = useState<DatabaseStatus | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Sync state to local storage as fallback cache
   useEffect(() => {
     localStorage.setItem('nexa_meal_settings', JSON.stringify({ ...settings, currentShift }));
   }, [settings, currentShift]);
@@ -409,9 +380,84 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem('nexa_shift_closes', JSON.stringify(shiftCloseRecords));
   }, [shiftCloseRecords]);
 
-  const activeCustomer = customers.find(c => c.id === activeCustomerId) || customers[0];
+  // Load from backend on start
+  const fetchAllFromBackend = useCallback(async () => {
+    try {
+      setIsSyncing(true);
+      const [dbStat, backendSettings, backendCusts, backendMeals, backendPayments, backendPasses, backendShifts] =
+        await Promise.allSettled([
+          api.getDatabaseStatus(),
+          api.getSettings(),
+          api.getCustomers(),
+          api.getMeals(),
+          api.getPayments(),
+          api.getPasses(),
+          api.getShiftCloses(),
+        ]);
 
-  // Retrieve or create today's primary pass for active customer for the current shift
+      if (dbStat.status === 'fulfilled') setDatabaseStatus(dbStat.value);
+      if (backendSettings.status === 'fulfilled' && backendSettings.value) {
+        setSettings(backendSettings.value);
+        if (backendSettings.value.currentShift) setCurrentShift(backendSettings.value.currentShift);
+      }
+      if (backendCusts.status === 'fulfilled' && backendCusts.value?.length) {
+        setCustomers(backendCusts.value);
+      }
+      if (backendMeals.status === 'fulfilled' && backendMeals.value) {
+        setMealRecords(backendMeals.value);
+      }
+      if (backendPayments.status === 'fulfilled' && backendPayments.value) {
+        setPaymentRecords(backendPayments.value);
+      }
+      if (backendPasses.status === 'fulfilled' && backendPasses.value?.length) {
+        setQrPasses(backendPasses.value);
+      }
+      if (backendShifts.status === 'fulfilled' && backendShifts.value) {
+        setShiftCloseRecords(backendShifts.value);
+      }
+    } catch (e) {
+      console.warn('Backend not responding yet, using cached data.', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllFromBackend();
+  }, [fetchAllFromBackend]);
+
+  const refreshDatabaseStatus = async () => {
+    try {
+      const status = await api.getDatabaseStatus();
+      setDatabaseStatus(status);
+    } catch {
+      // Non-blocking
+    }
+  };
+
+  const connectNeonDatabase = async (connectionString: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      setIsSyncing(true);
+      const res = await api.connectDatabase(connectionString);
+      if (res.success) {
+        await refreshDatabaseStatus();
+        await fetchAllFromBackend();
+        sound.playSuccess();
+      } else {
+        sound.playError();
+      }
+      return res;
+    } catch (err: any) {
+      sound.playError();
+      return { success: false, message: err.message || 'Failed connecting to Neon database.' };
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const activeCustomer = customers.find(c => c.id === activeCustomerId) || customers[0] || DEFAULT_CUSTOMERS[0];
+
+  // Retrieve or create today's primary pass for active customer for current shift
   const todayQrPass = React.useMemo(() => {
     const existing = qrPasses.find(
       p => p.customerId === activeCustomerId && 
@@ -432,7 +478,10 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createdTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    // Optimistically add and attempt backend persistence
     setQrPasses(prev => [...prev, newPass]);
+    api.createPass(newPass).catch(() => {});
+
     return newPass;
   }, [activeCustomerId, activeCustomer.name, qrPasses, todayDateStr, currentShift]);
 
@@ -443,8 +492,14 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   }, [activeCustomerId, qrPasses, todayDateStr]);
 
-  const updateSettings = (newSettings: Partial<RestaurantSettings>) => {
+  const updateSettings = async (newSettings: Partial<RestaurantSettings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }));
+    try {
+      const saved = await api.updateSettings(newSettings);
+      setSettings(saved);
+    } catch {
+      // Local fallback already applied
+    }
   };
 
   const toggleOfflineMode = () => {
@@ -452,9 +507,8 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsOfflineMode(prev => !prev);
   };
 
-  const createGuestPass = (guestName: string): QRCodePass | null => {
+  const createGuestPass = async (guestName: string): Promise<QRCodePass | null> => {
     sound.playTap();
-    // Enforce Proposal Section 9: Configurable max guest QR passes per day
     if (guestPasses.length >= settings.maxGuestQrPerDay) {
       sound.playError();
       return null;
@@ -475,197 +529,18 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setQrPasses(prev => [newPass, ...prev]);
+    api.createPass(newPass).catch(() => {});
     return newPass;
   };
 
-  const deleteGuestPass = (code: string) => {
+  const deleteGuestPass = async (code: string) => {
     sound.playTap();
     setQrPasses(prev => prev.filter(p => p.code !== code));
+    api.deletePass(code).catch(() => {});
   };
 
-  // Process a single scan deduction
-  const processDeduction = (cleanCode: string): ScanResult => {
-    const nowIso = new Date().toISOString();
-    let pass = qrPasses.find(p => p.code === cleanCode);
-
-    if (!pass && cleanCode.startsWith('NEXA-')) {
-      const parts = cleanCode.split('-');
-      if (parts.length >= 4) {
-        const custId = parts[1];
-        const dateValid = parts[2];
-        const isGuest = cleanCode.includes('GUEST');
-        const foundCust = customers.find(c => c.id === custId);
-        if (foundCust) {
-          pass = {
-            code: cleanCode,
-            type: isGuest ? 'guest' : 'regular',
-            shift: currentShift,
-            customerId: foundCust.id,
-            customerName: foundCust.name,
-            dateValid: dateValid,
-            isUsed: false,
-            createdTime: 'Generated',
-          };
-          setQrPasses(prev => [...prev, pass!]);
-        }
-      }
-    }
-
-    if (!pass) {
-      sound.playError();
-      const res: ScanResult = {
-        success: false,
-        message: "Invalid QR Code: Not recognized by this restaurant system.",
-        timestamp: nowIso,
-        errorType: 'not_found',
-      };
-      setLastScanResult(res);
-      return res;
-    }
-
-    if (pass.isUsed) {
-      sound.playError();
-      const usedTimeStr = pass.usedAt
-        ? new Date(pass.usedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        : 'earlier today';
-      const res: ScanResult = {
-        success: false,
-        message: `Already Scanned: This pass was used today for ${pass.shift || currentShift} at ${usedTimeStr}. Daily QR codes work only once!`,
-        qrPass: pass,
-        timestamp: nowIso,
-        errorType: 'already_used',
-      };
-      setLastScanResult(res);
-      return res;
-    }
-
-    const customer = customers.find(c => c.id === pass!.customerId);
-    if (!customer) {
-      sound.playError();
-      const res: ScanResult = {
-        success: false,
-        message: "Customer account not found.",
-        timestamp: nowIso,
-        errorType: 'not_found',
-      };
-      setLastScanResult(res);
-      return res;
-    }
-
-    if (customer.mealsRemaining <= 0) {
-      sound.playError();
-      const invalidRec: MealRecord = {
-        id: `meal-invalid-${Date.now()}`,
-        timestamp: nowIso,
-        customerId: customer.id,
-        customerName: customer.name,
-        shift: currentShift,
-        type: pass.type,
-        guestName: pass.guestName,
-        mealCount: 0,
-        amountRwf: 0,
-        paymentMethod: 'balance',
-        scannedBy: "Staff Scanner",
-        status: 'invalid',
-        note: "Blocked: Zero meal balance remaining.",
-      };
-      setMealRecords(prev => [invalidRec, ...prev]);
-
-      const res: ScanResult = {
-        success: false,
-        message: `Not Valid: ${customer.name} has 0 meals left in prepaid balance. Please top up before ordering.`,
-        customer,
-        qrPass: pass,
-        mealsRemaining: 0,
-        timestamp: nowIso,
-        errorType: 'exhausted',
-      };
-      setLastScanResult(res);
-      return res;
-    }
-
-    const newRemainingMeals = customer.mealsRemaining - 1;
-    const totalAmount = settings.mealPriceRwf;
-    const newBalanceRwf = Math.max(0, customer.balanceRwf - totalAmount);
-
-    let newStatus: Customer['status'] = 'active';
-    if (newRemainingMeals === 0) {
-      newStatus = 'finished';
-    } else if (newRemainingMeals <= settings.lowBalanceThreshold) {
-      newStatus = 'low';
-    }
-
-    setQrPasses(prev =>
-      prev.map(p =>
-        p.code === pass!.code
-          ? { ...p, isUsed: true, usedAt: nowIso }
-          : p
-      )
-    );
-
-    setCustomers(prev =>
-      prev.map(c =>
-        c.id === customer.id
-          ? {
-              ...c,
-              mealsRemaining: newRemainingMeals,
-              balanceRwf: newBalanceRwf,
-              status: newStatus,
-              lastMealAt: nowIso,
-            }
-          : c
-      )
-    );
-
-    const newRecord: MealRecord = {
-      id: `meal-${Date.now()}`,
-      timestamp: nowIso,
-      customerId: customer.id,
-      customerName: customer.name,
-      shift: currentShift,
-      type: pass.type,
-      guestName: pass.guestName,
-      mealCount: 1,
-      amountRwf: totalAmount,
-      paymentMethod: 'balance',
-      scannedBy: "Staff POS",
-      status: 'valid',
-      remainingMealsAfter: newRemainingMeals,
-    };
-    setMealRecords(prev => [newRecord, ...prev]);
-
-    sound.playSuccess();
-    try {
-      confetti({
-        particleCount: 28,
-        spread: 55,
-        origin: { y: 0.6 },
-        colors: ['#10b981', '#34d399', '#059669'],
-      });
-    } catch {
-      // non-blocking
-    }
-
-    const result: ScanResult = {
-      success: true,
-      message: `Valid: 1 ${currentShift} meal deducted for ${customer.name}. ${newRemainingMeals} meals remaining.`,
-      customer: {
-        ...customer,
-        mealsRemaining: newRemainingMeals,
-        balanceRwf: newBalanceRwf,
-        status: newStatus,
-      },
-      qrPass: { ...pass, isUsed: true, usedAt: nowIso },
-      mealsRemaining: newRemainingMeals,
-      timestamp: nowIso,
-    };
-
-    setLastScanResult(result);
-    return result;
-  };
-
-  // Scanning with Offline Mode interception
-  const scanQRCode = (code: string): ScanResult => {
+  // Scan deduction handler
+  const scanQRCode = async (code: string): Promise<ScanResult> => {
     const cleanCode = code.trim();
     const nowIso = new Date().toISOString();
 
@@ -690,57 +565,91 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return offlineResult;
     }
 
-    return processDeduction(cleanCode);
+    try {
+      const res = await api.scanQRCode(cleanCode, currentShift);
+      if (res.success) {
+        sound.playSuccess();
+        try {
+          confetti({
+            particleCount: 28,
+            spread: 55,
+            origin: { y: 0.6 },
+            colors: ['#10b981', '#34d399', '#059669'],
+          });
+        } catch {}
+        // Refresh updated data
+        await fetchAllFromBackend();
+      } else {
+        sound.playError();
+      }
+      setLastScanResult(res);
+      return res;
+    } catch {
+      // Local fallback processing if network drops
+      const fallbackResult: ScanResult = {
+        success: false,
+        message: 'Unable to reach verification server. Pass queued for offline retry.',
+        timestamp: nowIso,
+      };
+      setLastScanResult(fallbackResult);
+      return fallbackResult;
+    }
   };
 
-  // Sync offline queue when back online
-  const syncOfflineQueue = () => {
+  const syncOfflineQueue = async () => {
     sound.playTap();
     if (offlineQueue.length === 0) return;
 
-    offlineQueue.forEach(item => {
-      processDeduction(item.code);
-    });
+    for (const item of offlineQueue) {
+      try {
+        await api.scanQRCode(item.code, item.shift);
+      } catch (err) {
+        console.error('Offline queue sync item error', err);
+      }
+    }
 
     setOfflineQueue([]);
+    await fetchAllFromBackend();
     sound.playSuccess();
   };
 
-  // Record Walk-In with optional MoMo Transaction Reference
-  const recordWalkIn = (
+  const recordWalkIn = async (
     mealCount: number,
     paymentMethod: 'cash' | 'momo',
     note?: string,
     momoRef?: string
-  ): MealRecord => {
+  ): Promise<MealRecord> => {
     sound.playTap();
-    const nowIso = new Date().toISOString();
-    const amount = mealCount * settings.mealPriceRwf;
-    const finalMomoRef = momoRef?.trim() || (paymentMethod === 'momo' ? `MOMO-${Math.floor(1000000 + Math.random() * 9000000)}` : undefined);
-
-    const record: MealRecord = {
-      id: `walkin-${Date.now()}`,
-      timestamp: nowIso,
-      customerId: 'walk-in',
-      customerName: `Walk-in Diner (#${Math.floor(100 + Math.random() * 900)})`,
-      shift: currentShift,
-      type: 'walk-in',
-      mealCount,
-      amountRwf: amount,
-      paymentMethod,
-      momoReference: finalMomoRef,
-      scannedBy: "Cashier",
-      status: 'valid',
-      note: note || undefined,
-    };
-
-    setMealRecords(prev => [record, ...prev]);
-    sound.playSuccess();
-    return record;
+    try {
+      const rec = await api.recordWalkIn(mealCount, paymentMethod, note, momoRef, currentShift);
+      setMealRecords(prev => [rec, ...prev]);
+      sound.playSuccess();
+      return rec;
+    } catch {
+      const nowIso = new Date().toISOString();
+      const amount = mealCount * settings.mealPriceRwf;
+      const localRec: MealRecord = {
+        id: `walkin-${Date.now()}`,
+        timestamp: nowIso,
+        customerId: 'walk-in',
+        customerName: `Walk-in Diner (#${Math.floor(100 + Math.random() * 900)})`,
+        shift: currentShift,
+        type: 'walk-in',
+        mealCount,
+        amountRwf: amount,
+        paymentMethod,
+        momoReference: momoRef,
+        scannedBy: "Cashier",
+        status: 'valid',
+        note,
+      };
+      setMealRecords(prev => [localRec, ...prev]);
+      sound.playSuccess();
+      return localRec;
+    }
   };
 
-  // Top-Up customer with MoMo Transaction ID
-  const topUpCustomer = (
+  const topUpCustomer = async (
     customerId: string,
     amountRwf: number,
     method: 'momo' | 'cash' | 'bank',
@@ -748,146 +657,113 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
     momoTxId?: string
   ) => {
     sound.playTap();
-    const customer = customers.find(c => c.id === customerId);
-    if (!customer) return;
-
-    const mealsToAdd = Math.floor(amountRwf / settings.mealPriceRwf);
-    const newTotalMealsPurchased = customer.totalMealsPurchased + mealsToAdd;
-    const newRemainingMeals = customer.mealsRemaining + mealsToAdd;
-    const newBalanceRwf = customer.balanceRwf + amountRwf;
-    const nowIso = new Date().toISOString();
-
-    setCustomers(prev =>
-      prev.map(c =>
-        c.id === customerId
-          ? {
-              ...c,
-              totalMealsPurchased: newTotalMealsPurchased,
-              mealsRemaining: newRemainingMeals,
-              balanceRwf: newBalanceRwf,
-              status: newRemainingMeals <= settings.lowBalanceThreshold ? 'low' : 'active',
-            }
-          : c
-      )
-    );
-
-    const payment: PaymentRecord = {
-      id: `pay-${Date.now()}`,
-      timestamp: nowIso,
-      customerId: customer.id,
-      customerName: customer.name,
-      amountRwf,
-      mealsCredited: mealsToAdd,
-      method,
-      referenceNo: ref || `PAY-${Math.floor(100000 + Math.random() * 900000)}`,
-      momoTransactionId: momoTxId || (method === 'momo' ? `MP${todayDateStr.replace(/-/g, '').slice(2)}.${Math.floor(1000 + Math.random() * 9000)}.RW` : undefined),
-      reconciled: method === 'cash',
-    };
-    setPaymentRecords(prev => [payment, ...prev]);
-    sound.playSuccess();
+    try {
+      const res = await api.topUpCustomer(customerId, amountRwf, method, ref, momoTxId);
+      setCustomers(prev => prev.map(c => (c.id === customerId ? res.customer : c)));
+      setPaymentRecords(prev => [res.payment, ...prev]);
+      sound.playSuccess();
+    } catch {
+      // Local fallback
+      const customer = customers.find(c => c.id === customerId);
+      if (!customer) return;
+      const mealsToAdd = Math.floor(amountRwf / settings.mealPriceRwf);
+      const updated: Customer = {
+        ...customer,
+        totalMealsPurchased: customer.totalMealsPurchased + mealsToAdd,
+        mealsRemaining: customer.mealsRemaining + mealsToAdd,
+        balanceRwf: customer.balanceRwf + amountRwf,
+        status: (customer.mealsRemaining + mealsToAdd) <= settings.lowBalanceThreshold ? 'low' : 'active',
+      };
+      setCustomers(prev => prev.map(c => (c.id === customerId ? updated : c)));
+      sound.playSuccess();
+    }
   };
 
-  // Reconcile MoMo payment against SMS records
-  const reconcilePayment = (id: string, reconciled: boolean) => {
+  const reconcilePayment = async (id: string, reconciled: boolean) => {
     sound.playTap();
-    setPaymentRecords(prev =>
-      prev.map(p => (p.id === id ? { ...p, reconciled } : p))
-    );
+    setPaymentRecords(prev => prev.map(p => (p.id === id ? { ...p, reconciled } : p)));
+    api.reconcilePayment(id, reconciled).catch(() => {});
   };
 
-  // Close shift and compute cash / MoMo discrepancies
-  const closeShift = (countedCash: number, countedMomo: number, notes?: string): ShiftCloseRecord => {
+  const closeShift = async (
+    countedCash: number,
+    countedMomo: number,
+    notes?: string
+  ): Promise<ShiftCloseRecord> => {
     sound.playTap();
-    const nowIso = new Date().toISOString();
+    try {
+      const rep = await api.closeShift(todayDateStr, currentShift, countedCash, countedMomo, notes);
+      setShiftCloseRecords(prev => [rep, ...prev]);
+      sound.playSuccess();
+      return rep;
+    } catch {
+      // Local computation fallback
+      const shiftMeals = mealRecords.filter(
+        r => r.timestamp.startsWith(todayDateStr) && r.status === 'valid' && (r.shift === currentShift || !r.shift)
+      );
+      const cashRecorded = shiftMeals.filter(r => r.paymentMethod === 'cash').reduce((sum, r) => sum + r.amountRwf, 0);
+      const momoRecorded = shiftMeals.filter(r => r.paymentMethod === 'momo').reduce((sum, r) => sum + r.amountRwf, 0);
 
-    // Today's shift meals
-    const shiftMeals = mealRecords.filter(
-      r => r.timestamp.startsWith(todayDateStr) && r.status === 'valid' && (r.shift === currentShift || !r.shift)
-    );
-
-    const cashRecorded = shiftMeals
-      .filter(r => r.paymentMethod === 'cash')
-      .reduce((sum, r) => sum + r.amountRwf, 0);
-
-    const momoRecorded = shiftMeals
-      .filter(r => r.paymentMethod === 'momo')
-      .reduce((sum, r) => sum + r.amountRwf, 0);
-
-    const totalMealsServed = shiftMeals.reduce((sum, r) => sum + r.mealCount, 0);
-    const subscribersServed = shiftMeals.filter(r => r.type === 'regular').reduce((sum, r) => sum + r.mealCount, 0);
-    const guestsServed = shiftMeals.filter(r => r.type === 'guest').reduce((sum, r) => sum + r.mealCount, 0);
-    const walkinsServed = shiftMeals.filter(r => r.type === 'walk-in').reduce((sum, r) => sum + r.mealCount, 0);
-
-    const report: ShiftCloseRecord = {
-      id: `shift-close-${Date.now()}`,
-      date: todayDateStr,
-      shift: currentShift,
-      closedAt: nowIso,
-      cashRecordedRwf: cashRecorded,
-      cashCountedRwf: countedCash,
-      cashDiscrepancyRwf: countedCash - cashRecorded,
-      momoRecordedRwf: momoRecorded,
-      momoCountedRwf: countedMomo,
-      momoDiscrepancyRwf: countedMomo - momoRecorded,
-      totalMealsServed,
-      subscribersServed,
-      guestsServed,
-      walkinsServed,
-      notes,
-    };
-
-    setShiftCloseRecords(prev => [report, ...prev]);
-    sound.playSuccess();
-    return report;
+      const localRep: ShiftCloseRecord = {
+        id: `shift-close-${Date.now()}`,
+        date: todayDateStr,
+        shift: currentShift,
+        closedAt: new Date().toISOString(),
+        cashRecordedRwf: cashRecorded,
+        cashCountedRwf: countedCash,
+        cashDiscrepancyRwf: countedCash - cashRecorded,
+        momoRecordedRwf: momoRecorded,
+        momoCountedRwf: countedMomo,
+        momoDiscrepancyRwf: countedMomo - momoRecorded,
+        totalMealsServed: shiftMeals.reduce((sum, r) => sum + r.mealCount, 0),
+        subscribersServed: shiftMeals.filter(r => r.type === 'regular').reduce((sum, r) => sum + r.mealCount, 0),
+        guestsServed: shiftMeals.filter(r => r.type === 'guest').reduce((sum, r) => sum + r.mealCount, 0),
+        walkinsServed: shiftMeals.filter(r => r.type === 'walk-in').reduce((sum, r) => sum + r.mealCount, 0),
+        notes,
+      };
+      setShiftCloseRecords(prev => [localRep, ...prev]);
+      sound.playSuccess();
+      return localRep;
+    }
   };
 
-  const registerCustomer = (
+  const registerCustomer = async (
     name: string,
     phone: string,
     initialDepositRwf: number,
     category: Customer['category'] = 'Student'
-  ): Customer => {
+  ): Promise<Customer> => {
     sound.playTap();
-    const newId = `cust-${Date.now()}`;
-    const mealsCredited = Math.floor(initialDepositRwf / settings.mealPriceRwf);
-    const nowIso = new Date().toISOString();
-
-    const newCust: Customer = {
-      id: newId,
-      name: name.trim(),
-      phone: phone.trim(),
-      mealsRemaining: mealsCredited,
-      totalMealsPurchased: mealsCredited,
-      balanceRwf: initialDepositRwf,
-      status: mealsCredited <= settings.lowBalanceThreshold ? 'low' : 'active',
-      registeredDate: todayDateStr,
-      category,
-    };
-
-    setCustomers(prev => [...prev, newCust]);
-
-    if (initialDepositRwf > 0) {
-      const pay: PaymentRecord = {
-        id: `pay-init-${Date.now()}`,
-        timestamp: nowIso,
-        customerId: newId,
-        customerName: newCust.name,
-        amountRwf: initialDepositRwf,
-        mealsCredited,
-        method: 'momo',
-        referenceNo: `MOMO-INIT-${Math.floor(100000 + Math.random() * 900000)}`,
-        momoTransactionId: `MP${todayDateStr.replace(/-/g, '').slice(2)}.${Math.floor(1000 + Math.random() * 9000)}.RW`,
-        reconciled: true,
+    try {
+      const newCust = await api.registerCustomer(name, phone, initialDepositRwf, category);
+      await fetchAllFromBackend();
+      sound.playSuccess();
+      return newCust;
+    } catch {
+      const newId = `cust-${Date.now()}`;
+      const mealsCredited = Math.floor(initialDepositRwf / settings.mealPriceRwf);
+      const newCust: Customer = {
+        id: newId,
+        name: name.trim(),
+        phone: phone.trim(),
+        mealsRemaining: mealsCredited,
+        totalMealsPurchased: mealsCredited,
+        balanceRwf: initialDepositRwf,
+        status: mealsCredited <= settings.lowBalanceThreshold ? 'low' : 'active',
+        registeredDate: todayDateStr,
+        category,
       };
-      setPaymentRecords(prev => [pay, ...prev]);
+      setCustomers(prev => [...prev, newCust]);
+      sound.playSuccess();
+      return newCust;
     }
-
-    sound.playSuccess();
-    return newCust;
   };
 
-  const resetToDefaultData = () => {
+  const resetToDefaultData = async () => {
     sound.playTap();
+    try {
+      await api.resetData();
+    } catch {}
     setSettings(DEFAULT_SETTINGS);
     setCustomers(DEFAULT_CUSTOMERS);
     setMealRecords(DEFAULT_MEAL_RECORDS);
@@ -943,6 +819,10 @@ export const MealAppProvider: React.FC<{ children: React.ReactNode }> = ({ child
         shiftCloseRecords,
         closeShift,
         reconcilePayment,
+        databaseStatus,
+        refreshDatabaseStatus,
+        connectNeonDatabase,
+        isSyncing,
       }}
     >
       {children}
