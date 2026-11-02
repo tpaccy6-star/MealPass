@@ -27,7 +27,7 @@ import {
   Bell
 } from 'lucide-react';
 import { useMealApp } from '../../context/MealAppContext';
-import { QRCodePass, MealRecord, MealShift } from '../../types';
+import { Customer, QRCodePass, MealRecord, MealShift } from '../../types';
 import { sound } from '../../utils/audio';
 import { RadialMealGauge } from './RadialMealGauge';
 import { DateStripSelector } from './DateStripSelector';
@@ -35,6 +35,7 @@ import { QuickServiceCards } from './QuickServiceCards';
 import { FloatingNavDock } from './FloatingNavDock';
 import { NotificationSheet } from './NotificationSheet';
 import { CustomerRegistrationModal } from './CustomerRegistrationModal';
+import { CustomerOnboardingGate } from './CustomerOnboardingGate';
 
 export const CustomerApp: React.FC = () => {
   const {
@@ -81,6 +82,37 @@ export const CustomerApp: React.FC = () => {
   // Kitchen slip / digital receipt modal state
   const [selectedReceiptMeal, setSelectedReceiptMeal] = useState<MealRecord | null>(null);
   const [receiptCopied, setReceiptCopied] = useState(false);
+
+  // Authentication/Customer Session Gate State
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    // If user has saved session or activeCustomer exists
+    return localStorage.getItem('nexa_customer_authenticated') === 'true';
+  });
+
+  const handleAuthenticatedCustomer = (customer: Customer) => {
+    setActiveCustomerId(customer.id);
+    setIsAuthenticated(true);
+    localStorage.setItem('nexa_customer_authenticated', 'true');
+  };
+
+  const handleSignOutCustomer = () => {
+    sound.playTap();
+    setIsAuthenticated(false);
+    localStorage.removeItem('nexa_customer_authenticated');
+  };
+
+  // If customer is not yet registered or signed in, show the registration gate
+  if (!isAuthenticated) {
+    return (
+      <CustomerOnboardingGate
+        isDark={isDark}
+        settings={settings}
+        customers={customers}
+        onRegister={registerCustomer}
+        onSelectCustomer={handleAuthenticatedCustomer}
+      />
+    );
+  }
 
   const isLow = activeCustomer.mealsRemaining <= settings.lowBalanceThreshold && activeCustomer.mealsRemaining > 0;
   const isExhausted = activeCustomer.mealsRemaining === 0;
@@ -246,6 +278,8 @@ Thank you for dining with us!
                 sound.playTap();
                 if (e.target.value === '__REGISTER_NEW__') {
                   setShowRegisterModal(true);
+                } else if (e.target.value === '__LOGOUT__') {
+                  handleSignOutCustomer();
                 } else {
                   setActiveCustomerId(e.target.value);
                 }
@@ -261,8 +295,9 @@ Thank you for dining with us!
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="New User">
-                <option value="__REGISTER_NEW__">+ Register New Pass</option>
+              <optgroup label="Account Options">
+                <option value="__REGISTER_NEW__">+ Register New User</option>
+                <option value="__LOGOUT__">🚪 Switch / Sign Out</option>
               </optgroup>
             </select>
           </div>

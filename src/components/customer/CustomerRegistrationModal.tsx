@@ -36,12 +36,17 @@ export const CustomerRegistrationModal: React.FC<CustomerRegistrationModalProps>
   const [phone, setPhone] = useState('');
   const [category, setCategory] = useState<Customer['category']>('Student');
   const [selectedDeposit, setSelectedDeposit] = useState<number>(35000);
+  const [customAmountInput, setCustomAmountInput] = useState<string>('35000');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const calculatedMeals = Math.floor(selectedDeposit / mealPriceRwf);
+  const numericDeposit = Math.max(0, Number(customAmountInput) || 0);
+  const calculatedMeals = Math.floor(numericDeposit / mealPriceRwf);
+  const planFullPrice = category === 'Student' ? 35000 : category === 'Worker' ? 45000 : 40000;
+  const isPartial = numericDeposit > 0 && numericDeposit < planFullPrice;
+  const planBalanceRemaining = Math.max(0, planFullPrice - numericDeposit);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,7 +60,7 @@ export const CustomerRegistrationModal: React.FC<CustomerRegistrationModalProps>
     sound.playTap();
 
     try {
-      const newCustomer = await onRegister(name.trim(), phone.trim(), selectedDeposit, category);
+      const newCustomer = await onRegister(name.trim(), phone.trim(), numericDeposit, category);
       sound.playSuccess();
       onSuccess(newCustomer);
       onClose();
@@ -173,37 +178,39 @@ export const CustomerRegistrationModal: React.FC<CustomerRegistrationModalProps>
             </div>
           </div>
 
-          {/* Starter Meal Package Plan */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
+          {/* Starter Meal Package Plan & Flexible Payment */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between mb-1">
               <label className="text-[11px] font-semibold text-slate-400">
-                Choose Starter Prepaid Plan
+                Prepaid Plan & Flexible Payment
               </label>
               <span className="text-[10px] text-emerald-500 font-mono font-bold">
                 {calculatedMeals} Meals Credited
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-2">
+            {/* Plan Preset Cards */}
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => {
                   sound.playTap();
                   setSelectedDeposit(35000);
+                  setCustomAmountInput('35000');
                   setCategory('Student');
                 }}
-                className={`p-2.5 rounded-xl border text-left transition-all relative ${
-                  selectedDeposit === 35000
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  category === 'Student'
                     ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500'
                     : isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="flex justify-between items-center">
                   <span className="text-[9px] font-bold uppercase text-emerald-500">Student Plan</span>
-                  <span className="text-[9px] font-mono text-slate-400">17 Meals</span>
+                  <span className="text-[9px] font-mono text-slate-400">35k FRW Target</span>
                 </div>
                 <div className={`text-xs font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  35,000 FRW
+                  Student Rate
                 </div>
               </button>
 
@@ -212,30 +219,78 @@ export const CustomerRegistrationModal: React.FC<CustomerRegistrationModalProps>
                 onClick={() => {
                   sound.playTap();
                   setSelectedDeposit(45000);
+                  setCustomAmountInput('45000');
                   setCategory('Worker');
                 }}
-                className={`p-2.5 rounded-xl border text-left transition-all relative ${
-                  selectedDeposit === 45000
+                className={`p-2.5 rounded-xl border text-left transition-all ${
+                  category === 'Worker'
                     ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500'
                     : isDark ? 'bg-slate-800/80 border-slate-700' : 'bg-slate-50 border-slate-200'
                 }`}
               >
                 <div className="flex justify-between items-center">
                   <span className="text-[9px] font-bold uppercase text-emerald-500">Worker Plan</span>
-                  <span className="text-[9px] font-mono text-slate-400">22 Meals</span>
+                  <span className="text-[9px] font-mono text-slate-400">45k FRW Target</span>
                 </div>
                 <div className={`text-xs font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                  45,000 FRW
+                  Worker Rate
                 </div>
               </button>
             </div>
 
-            {/* Additional deposit chips */}
-            <div className="flex flex-wrap gap-1.5">
+            {/* Flexible Custom Amount Input */}
+            <div>
+              <div className="flex justify-between text-[11px] mb-1">
+                <span className="text-slate-400">Amount Paid Today (Full or Partial RWF):</span>
+                <span className="font-mono text-emerald-500 font-bold">
+                  @ {mealPriceRwf.toLocaleString()} RWF / meal
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  step={500}
+                  min={0}
+                  value={customAmountInput}
+                  onChange={(e) => {
+                    setCustomAmountInput(e.target.value);
+                    setSelectedDeposit(Number(e.target.value) || 0);
+                  }}
+                  className={`w-full px-3 py-2 rounded-xl text-xs font-mono font-bold border focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                    isDark ? 'bg-slate-950 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
+                  }`}
+                  placeholder="Enter any amount (e.g. 10000, 20000, 35000)"
+                />
+                <span className="absolute right-3 top-2 text-xs font-mono text-emerald-500 font-bold">
+                  = {calculatedMeals} Meals
+                </span>
+              </div>
+            </div>
+
+            {/* Partial Payment Notice / Breakdown */}
+            {isPartial && (
+              <div className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-[10px] text-slate-300 flex justify-between items-center">
+                <span>Partial payment accepted:</span>
+                <span className="font-mono text-amber-400">
+                  Plan balance: {planBalanceRemaining.toLocaleString()} RWF remaining
+                </span>
+              </div>
+            )}
+
+            {numericDeposit === 0 && (
+              <div className="p-2 rounded-xl bg-slate-800/60 border border-slate-700 text-[10px] text-slate-400">
+                Opening account with 0 RWF. You can top-up at any time before your first cafeteria meal scan.
+              </div>
+            )}
+
+            {/* Quick partial / custom chips */}
+            <div className="flex flex-wrap gap-1.5 pt-0.5">
               {[
+                { label: '5k FRW (2 Meals)', val: 5000 },
+                { label: '10k FRW (5 Meals)', val: 10000 },
                 { label: '20k FRW (10 Meals)', val: 20000 },
-                { label: '40k FRW (20 Meals)', val: 40000 },
-                { label: '60k FRW (30 Meals)', val: 60000 },
+                { label: '35k FRW (Full Student)', val: 35000 },
+                { label: '45k FRW (Full Worker)', val: 45000 },
               ].map(chip => (
                 <button
                   key={chip.val}
@@ -243,9 +298,10 @@ export const CustomerRegistrationModal: React.FC<CustomerRegistrationModalProps>
                   onClick={() => {
                     sound.playTap();
                     setSelectedDeposit(chip.val);
+                    setCustomAmountInput(String(chip.val));
                   }}
                   className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors ${
-                    selectedDeposit === chip.val
+                    numericDeposit === chip.val
                       ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold'
                       : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'
                   }`}

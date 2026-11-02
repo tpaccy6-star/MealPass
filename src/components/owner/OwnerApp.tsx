@@ -2199,74 +2199,39 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-[11px] font-medium text-slate-400">
-                    Prepaid Meal Plan / Deposit (RWF)
+                    Prepaid Deposit / Partial Payment (RWF)
                   </label>
-                  <span className="text-[10px] text-emerald-500 font-medium">Quick Select</span>
+                  <span className="text-[10px] text-emerald-500 font-mono font-bold">
+                    = {Math.floor(newCustDeposit / settings.mealPriceRwf)} Meals Credited
+                  </span>
                 </div>
 
-                {/* 35,000 FRW & 45,000 FRW Featured Plan Cards */}
-                <div className="grid grid-cols-2 gap-2 mb-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playTap();
-                      setNewCustDeposit(35000);
-                      setNewCustCategory('Student');
-                    }}
-                    className={`p-2.5 rounded-xl border text-left transition-all ${
-                      newCustDeposit === 35000
-                        ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500'
-                        : isDark
-                        ? 'border-slate-700 bg-slate-800/80 hover:bg-slate-700/80'
-                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                <div className="relative mb-2">
+                  <input
+                    type="number"
+                    step={500}
+                    min={0}
+                    value={newCustDeposit}
+                    onChange={(e) => setNewCustDeposit(Math.max(0, Number(e.target.value) || 0))}
+                    className={`w-full px-3 py-2 rounded-xl text-sm font-mono font-bold border focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                      isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
                     }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold text-emerald-500">Student Plan</span>
-                      <span className="text-[9px] font-mono text-slate-400">{Math.floor(35000 / settings.mealPriceRwf)} Meals</span>
-                    </div>
-                    <div className={`text-xs font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      35,000 FRW
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      @ {settings.mealPriceRwf.toLocaleString()} RWF/meal
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      sound.playTap();
-                      setNewCustDeposit(45000);
-                      setNewCustCategory('Worker');
-                    }}
-                    className={`p-2.5 rounded-xl border text-left transition-all ${
-                      newCustDeposit === 45000
-                        ? 'border-emerald-500 bg-emerald-500/15 ring-1 ring-emerald-500'
-                        : isDark
-                        ? 'border-slate-700 bg-slate-800/80 hover:bg-slate-700/80'
-                        : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] uppercase font-bold text-emerald-500">Worker Plan</span>
-                      <span className="text-[9px] font-mono text-slate-400">{Math.floor(45000 / settings.mealPriceRwf)} Meals</span>
-                    </div>
-                    <div className={`text-xs font-bold mt-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      45,000 FRW
-                    </div>
-                    <div className="text-[10px] text-slate-400">
-                      @ {settings.mealPriceRwf.toLocaleString()} RWF/meal
-                    </div>
-                  </button>
+                    placeholder="Enter any flexible payment amount"
+                  />
+                  <span className="absolute right-3 top-2 text-xs font-mono text-emerald-500 font-semibold">
+                    {Math.floor(newCustDeposit / settings.mealPriceRwf)} Meals
+                  </span>
                 </div>
 
-                {/* Additional Quick Amount Chips */}
-                <div className="flex flex-wrap gap-1.5 mb-2">
+                {/* Flexible Preset & Partial Chips */}
+                <div className="flex flex-wrap gap-1.5">
                   {[
+                    { label: '0 FRW (Later)', val: 0 },
+                    { label: '5,000 FRW (2 Meals)', val: 5000 },
+                    { label: '10,000 FRW (5 Meals)', val: 10000 },
                     { label: '20,000 FRW (10 Meals)', val: 20000 },
-                    { label: '40,000 FRW (20 Meals)', val: 40000 },
-                    { label: '60,000 FRW (30 Meals)', val: 60000 },
+                    { label: '35,000 FRW (Student)', val: 35000 },
+                    { label: '45,000 FRW (Worker)', val: 45000 },
                   ].map(p => (
                     <button
                       key={p.val}
@@ -2277,7 +2242,7 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
                       }}
                       className={`text-[10px] px-2 py-0.5 rounded-lg border transition-colors ${
                         newCustDeposit === p.val
-                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-semibold'
+                          ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold'
                           : isDark
                           ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
                           : 'bg-slate-100 border-slate-200 text-slate-700 hover:bg-slate-200'
@@ -2286,21 +2251,6 @@ Payment: ${activeKitchenChitMeal.paymentMethod.toUpperCase()}
                       {p.label}
                     </button>
                   ))}
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="number"
-                    step={settings.mealPriceRwf}
-                    value={newCustDeposit}
-                    onChange={(e) => setNewCustDeposit(Number(e.target.value))}
-                    className={`w-full px-3 py-2 rounded-xl text-sm font-mono border focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
-                      isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-900'
-                    }`}
-                  />
-                  <span className="absolute right-3 top-2 text-xs font-mono text-emerald-500 font-semibold">
-                    = {Math.floor(newCustDeposit / settings.mealPriceRwf)} Meals
-                  </span>
                 </div>
               </div>
 
